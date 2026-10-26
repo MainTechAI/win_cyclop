@@ -1,0 +1,63 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+    paths: ['windows/**', '.github/workflows/windows.yml']
+  pull_request:
+    paths: ['windows/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: windows
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: windows/pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install -e ".[dev]"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+      - name: Verify native Windows media bindings
+        run: |
+          python -c "from winrt.runtime import init_apartment, uninit_apartment; from winrt.windows.media.control import GlobalSystemMediaTransportControlsSessionManager; from winrt.windows.storage.streams import Buffer; init_apartment(); b = Buffer(8); assert bytes(b) == b''; uninit_apartment(); print('Windows Runtime imports and buffer projection OK')"
+      - name: Build portable application
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --collect-submodules winrt --copy-metadata cyclop-windows scripts/launch.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item ..\LICENSE dist\CyclopWindows\LICENSE.txt
+          Copy-Item THIRD_PARTY_NOTICES.md dist\CyclopWindows\THIRD_PARTY_NOTICES.md
+          Copy-Item README.md dist\CyclopWindows\README.md
+          python scripts/collect-licenses.py dist/CyclopWindows/licenses
+          python -m pip freeze | Out-File dist\CyclopWindows\BUILD-DEPENDENCIES.txt -Encoding utf8
+      - name: Smoke test packaged application
+        run: |
+          $env:CYCLOP_DATA_DIR = Join-Path $env:RUNNER_TEMP 'cyclop-smoke'
+          $process = Start-Process -FilePath dist\CyclopWindows\CyclopWindows.exe -ArgumentList '--expanded' -PassThru
+          Start-Sleep -Seconds 8
+          if ($process.HasExited) { throw "Packaged application exited unexpectedly: $($process.ExitCode)" }
+          Stop-Process -Id $process.Id
+      - name: Package
+        run: Compress-Archive -Path dist\CyclopWindows -DestinationPath dist\CyclopWindows-win-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CyclopWindows-win-x64
+          path: windows/dist/CyclopWindows-win-x64.zip
+          if-no-files-found: error
+          retention-days: 30

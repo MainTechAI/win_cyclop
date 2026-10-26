@@ -9,7 +9,7 @@ on:
     # Бета собиралась здесь же, пока канал работал; закрыт 6 октября 2026,
     # см. docs/beta.md.
     branches: [main]
-    paths-ignore: ['**.md', 'docs/**']
+    paths-ignore: ['**.md', 'docs/**', 'windows/**', '.github/workflows/windows.yml']
   pull_request:
     branches: [main]
   workflow_dispatch:
