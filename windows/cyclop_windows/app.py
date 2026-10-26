@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import sys
@@ -345,6 +346,7 @@ class Panel(QWidget):
 def main():
     parser = argparse.ArgumentParser(description="Cyclop for Windows 11")
     parser.add_argument("--expanded", action="store_true", help="Open the panel at launch")
+    parser.add_argument("--smoke-test", action="store_true", help="Render the packaged UI, write a startup report and exit")
     args = parser.parse_args()
     app = QApplication(sys.argv[:1])
     app.setApplicationName("CyclopWindows")
@@ -383,7 +385,10 @@ def main():
         capture.blockSignals(False)
     model.config_changed.connect(sync_capture)
     menu.addSeparator()
-    menu.addAction("Quit Cyclop", app.quit)
+    def request_quit():
+        panel.shutting_down = True
+        app.quit()
+    menu.addAction("Quit Cyclop", request_quit)
     tray.setContextMenu(menu)
     tray.activated.connect(lambda reason: panel.toggle() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
     tray.show()
@@ -396,10 +401,31 @@ def main():
         lock.unlock()
     app.aboutToQuit.connect(shutdown)
     panel.show()
-    if args.expanded:
+    if args.expanded or args.smoke_test:
         panel.set_expanded(True, focus=True)
     if sys.platform == "win32" and not hotkey.registered:
         tray.showMessage("Cyclop", "Ctrl+Alt+Space is in use. Open Cyclop from this tray icon.")
     if model.store.warnings:
         tray.showMessage("Cyclop recovered saved data", "\n".join(model.store.warnings))
+    if args.smoke_test:
+        def verify_startup():
+            try:
+                panel.watcher.stop()
+                panel.set_expanded(True)
+                panel.reposition()
+                picture = panel.grab()
+                if picture.isNull() or not panel.body.isVisible():
+                    raise RuntimeError("The expanded panel did not render")
+                report = {
+                    "success": True, "platform": sys.platform,
+                    "width": panel.width(), "height": panel.height(),
+                    "pane_count": len(panel.panes), "hotkey_registered": hotkey.registered,
+                }
+                (directory / "startup-check.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+                picture.save(str(directory / "startup-panel.png"))
+                request_quit()
+            except Exception as exc:
+                (directory / "startup-check.json").write_text(json.dumps({"success": False, "error": str(exc)}), encoding="utf-8")
+                app.exit(1)
+        QTimer.singleShot(2000, verify_startup)
     sys.exit(app.exec())
