@@ -9,6 +9,8 @@ $python = Join-Path $PWD ".venv\Scripts\python.exe"
 if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed." }
 & $python -m pytest -q
 if ($LASTEXITCODE -ne 0) { throw "Tests failed." }
+& $python scripts/check-winrt.py
+if ($LASTEXITCODE -ne 0) { throw "Windows Runtime check failed." }
 & $python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --collect-submodules winrt --copy-metadata cyclop-windows scripts/launch.py
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 Copy-Item ..\LICENSE dist\CyclopWindows\LICENSE.txt

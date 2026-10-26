@@ -35,8 +35,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest -q
       - name: Verify native Windows media bindings
-        run: |
-          python -c "from winrt.runtime import init_apartment, uninit_apartment, ApartmentType; from winrt.windows.media.control import GlobalSystemMediaTransportControlsSessionManager; from winrt.windows.storage.streams import Buffer; init_apartment(ApartmentType.MULTI_THREADED); b = Buffer(8); b.length = 8; assert len(bytes(b)) == 8; uninit_apartment(); print('Windows Runtime imports and buffer projection OK')"
+        run: python scripts/check-winrt.py
       - name: Build portable application
         run: |
           python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --collect-submodules winrt --copy-metadata cyclop-windows scripts/launch.py
