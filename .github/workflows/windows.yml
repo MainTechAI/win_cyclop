@@ -43,8 +43,8 @@ jobs:
             $short = (python -m pytest --lf --tb=line -q -p no:faulthandler 2>&1 | Select-Object -Last 25) -join "%0A"
             Write-Output "::error title=pytest failures::$short"
             if (Test-Path hang.log) {
-              $hang = (Get-Content hang.log -Tail 60) -join "%0A"
-              Write-Output "::error title=hung test stack::$hang"
+              $hang = (Get-Content hang.log | Where-Object { $_ -notmatch '^\[running\]' -and $_ -ne '' } | Select-Object -Last 70) -join "%0A"
+              Write-Output "::error title=test details::$hang"
             }
           }
           exit $code

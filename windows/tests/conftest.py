@@ -25,3 +25,10 @@ def hang_guard(request):
     faulthandler.dump_traceback_later(180, exit=True, file=HANG_LOG)
     yield
     faulthandler.cancel_dump_traceback_later()
+
+
+def pytest_runtest_logreport(report):
+    """Mirror failure details into the hang log, which CI posts as an annotation."""
+    if report.failed:
+        HANG_LOG.write(f"\n[FAILED] {report.nodeid}\n{report.longreprtext[-1800:]}\n")
+        HANG_LOG.flush()
