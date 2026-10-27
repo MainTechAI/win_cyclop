@@ -1,21 +1,23 @@
 ---
-name: Баг
-about: Что-то работает не так, как описано в README
+name: Bug report
+about: Something does not work as described in the README
 title: ''
 labels: bug
 ---
 
-**Что происходит**
+**What happens**
 
-**Что ожидалось**
+**What you expected**
 
-**Как воспроизвести**
+**How to reproduce**
 
 1.
 2.
 
-**Окружение**
+**Environment**
 
-- Версия Cyclop (из релиза или `Scripts/version`):
-- macOS:
-- Мак с вырезом или без, число дисплеев:
+- Cyclop version (tray menu or release name):
+- `.exe`, zip build or source:
+- Windows version (Win+R → `winver`):
+- Display scaling and number of monitors:
+- Camera / microphone involved? (yes / no)

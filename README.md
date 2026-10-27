@@ -1,12 +1,13 @@
 # Cyclop for Windows 11
 
-A Windows adaptation of [akalikbergenov/cyclop](https://github.com/akalikbergenov/cyclop): an animated black notch that expands into a compact toolbox.
+[![Windows build](https://github.com/MainTechAI/win_cyclop/actions/workflows/windows.yml/badge.svg)](https://github.com/MainTechAI/win_cyclop/actions/workflows/windows.yml)
+[![Latest release](https://img.shields.io/github/v/release/MainTechAI/win_cyclop?label=download)](https://github.com/MainTechAI/win_cyclop/releases/latest)
 
-**The Windows application lives in [`windows/`](windows/).** The original macOS sources remain in this repository, with their original documentation in [README.macOS.md](README.macOS.md).
+A small black notch at the top of your screen that unfolds into a toolbox, with **Cyclop**: a living 3D eye that follows your pointer, scans with red sonar and shows your system stats. Built for Windows 11 with Python and Qt; no browser or Electron.
 
-![Windows panel layout](windows/docs/panel-preview.png)
+![Cyclop panel and eye](windows/docs/panel-preview.png)
 
-*Rendered Qt interface with simulated media metadata; this is a layout preview, not a Windows desktop capture.*
+*Rendered from the real widgets with sample music metadata.*
 
 ## Get started
 
@@ -17,27 +18,28 @@ Windows may show **"Windows protected your PC"** because the build is unsigned. 
 
 Prefer faster start-up? Download **CyclopWindows-win-x64.zip** from the same release, extract it, and run `CyclopWindows\CyclopWindows.exe` (keep the `_internal` folder next to it). To update, quit Cyclop from its tray menu and run the new download; your notes, snippets and settings are kept.
 
-Developers can run from source instead: see [the Windows README](windows/README.md#run-from-source-developers).
+## What it does
 
-## Included
-
-- **Cyclop**: a living 3D eye beside the notch that looks around, follows your pointer, scans with red sonar and slides out of the way when idle, with optional CPU/RAM/GPU/temperature stats under it.
-- **Image → text** (Ctrl+Shift+X): select any area of the screen; offline Windows OCR copies the text.
+- **Cyclop, the eye**: follows the mouse pointer anywhere on the screen, reads along while you type, startles, gets dizzy, hunts, yawns and sleeps, scans with red sonar, and tucks itself above the screen edge when idle. Click it to open or close the panel.
+- **System stats** under the eye: CPU, RAM, GPU and temperature as coloured numbers.
+- **Look where I look** (opt-in): with your webcam, Cyclop looks at you and learns where on the screen you are looking, calibrating itself from your mouse movements. Video never leaves your PC.
+- **Image → text** (Ctrl+Shift+X): drag around anything on screen; offline Windows OCR copies the text, with a red sonar scan while it reads.
 - **Define / translate the selection** (Ctrl+Alt+D / Ctrl+Alt+T) in a popup.
 - **Voice commands and recording** with offline Whisper transcription (English and Russian).
-- **Quick settings** with Keep awake and volume, plus app and output volume sliders.
-- Hover expansion, concave notch shoulders, black panel and two icon rails; tabs cycle in a loop.
-- Windows media session controls and artwork.
-- File shelf with drag-and-drop and optional clipboard screenshots.
-- Opt-in, session-only clipboard history and persistent snippets.
-- Calendar import with recurring events and meeting links.
-- Notes, teleprompter and daily currency conversion.
-- Optional offline English/Russian translation using Argos models.
-- Tray menu, **Ctrl+Alt+Space**, pin, privacy cover and monitor selection. Every feature can be switched off in Settings.
+- **Quick settings** with Keep awake and volume, plus app and output volume sliders for whatever is playing.
+- Media controls with artwork, a file shelf with drag-and-drop, opt-in clipboard history, snippets, calendar (`.ics`), notes, teleprompter and currency conversion.
+- Tabs cycle in a loop (Ctrl+Tab, mouse wheel), **Ctrl+Alt+Space** opens the panel, and every feature and shortcut can be switched off or changed in Settings.
 
-Calendar uses local `.ics` files rather than account sync. Offline translation of whole texts requires an optional source installation and language models; the release builds are unsigned and exclude the translation engine. Other platform differences and a Windows desktop smoke checklist are documented in [the Windows README](windows/README.md).
+Full details, shortcuts, privacy notes and the developer guide are in **[windows/README.md](windows/README.md)**.
 
-Original Cyclop by **akalikbergenov**, MIT licensed. This independent adaptation retains the upstream license and attribution.
+## Repository layout
+
+- [`windows/`](windows/): the app (`cyclop_windows/`), tests, build scripts and [release notes](windows/releases/).
+- [`.github/workflows/`](.github/workflows/): Windows build and tests on every pull request, the release that publishes the `.exe` when a `windows/releases/<version>.md` note lands on `main`, and VirusTotal scans.
+
+## Credits
+
+Based on [Cyclop for macOS](https://github.com/akalikbergenov/cyclop) by **akalikbergenov** (MIT). The notch shape and panel layout follow the original design. This is an independent Windows project, not an official release by the original author; the original MIT license and copyright notice are kept in [LICENSE](LICENSE).
 
 ## Automated file scans
 

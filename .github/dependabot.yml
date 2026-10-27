@@ -1,5 +1,4 @@
-# Зависимостей в коде нет — Package.swift пустой. Устаревать могут только
-# экшены в workflows, и они устаревают молча.
+# Keep the GitHub Actions used by the Windows build and release up to date.
 version: 2
 updates:
   - package-ecosystem: github-actions

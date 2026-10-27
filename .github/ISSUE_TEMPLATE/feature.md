@@ -1,16 +1,15 @@
 ---
-name: Предложение
-about: Новая вкладка или поведение. Обсуждается до кода, см. CONTRIBUTING.md
+name: Feature request
+about: A new tab, behaviour or shortcut. Discussed before code, see CONTRIBUTING.md
 title: ''
 labels: enhancement
 ---
 
-**Проблема, которую это решает**
+**The problem this solves**
 
-**Как это могло бы работать**
+**How it could work**
 
-**Как это ложится в правила проекта**
+**Fit with the project**
 
-- Разрешения macOS: не нужны / нужно такое-то
-- Сеть: не трогает / нужен запрос к …
-- Частота использования: каждый день / редко, значит с выключателем в настройках
+- Needs network / camera / microphone / screen access: no / yes, because …
+- How often you would use it: daily / rarely (then it needs a Settings toggle)

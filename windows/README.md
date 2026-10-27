@@ -1,8 +1,8 @@
 # Cyclop for Windows 11
 
-A native Qt desktop adaptation of [akalikbergenov/cyclop](https://github.com/akalikbergenov/cyclop). A small black notch at the top of your display unfolds into a toolbox when you hover over it. The silhouette, black surfaces, typography hierarchy and two icon rails follow the original MIT-licensed design.
+A native Qt desktop adaptation of [akalikbergenov/cyclop](https://github.com/akalikbergenov/cyclop). A small black notch at the top of your display unfolds into a toolbox when you hover over it. The silhouette, black surfaces, typography hierarchy and two icon rails follow the original MIT-licensed macOS design.
 
-**Version 0.2 adds features of its own but is not full macOS feature parity.** It uses Python 3.12, PySide6 and Windows Runtime APIs, bundled into the release executable. It does not use Electron or a browser window. Its footprint will be larger than the original Swift app.
+It uses Python 3.12, PySide6 and Windows Runtime APIs, bundled into the release executable. It does not use Electron or a browser window.
 
 ## Install
 
@@ -75,7 +75,7 @@ Voice commands run offline with Whisper and only perform allow-listed actions th
 | Recorder | Record the default microphone to WAV, play, move to Recycle Bin, offline Whisper transcription saved as `.txt` beside the recording | Speech model (tiny/base/small) is downloaded on first transcription. |
 | Settings | Panel, mascot, stats, feature toggles, speech model/language, editable shortcuts, tab visibility, monitor, data folder | One panel on a selected monitor, not one on every monitor. |
 
-Not implemented: the upstream keyboard-cleaning lock, per-section privacy rules, screen-capture folder watcher, cloud calendar authentication, mirrored panels across monitors, automatic updates, macOS integrations, native Windows installer and code signing. Hidden tabs stop their active services. Removing/hiding the shelf does not remove captured screenshots from disk.
+Not implemented: a keyboard-cleaning lock, per-section privacy rules, a screen-capture folder watcher, cloud calendar authentication, mirrored panels across monitors, automatic updates, a Windows installer and code signing. Hidden tabs stop their active services. Removing/hiding the shelf does not remove captured screenshots from disk.
 
 ## Translation setup
 
@@ -188,7 +188,7 @@ The hosted build does not replace these checks on a real Windows 11 desktop:
 
 ## Credits and license
 
-Original Cyclop by **akalikbergenov**, MIT, source baseline `125eb02fbd28b443fe922334ae09823d4ad38df6`. The notch path is adapted from `Sources/Cyclop/UI/NotchShape.swift`, and the layout/interaction design follows its SwiftUI implementation. The upstream copyright notice and MIT license are retained at the repository root. This is an independent Windows adaptation, not an official Windows release by the original author.
+Based on [Cyclop for macOS](https://github.com/akalikbergenov/cyclop) by **akalikbergenov**, MIT, source baseline [`125eb02`](https://github.com/akalikbergenov/cyclop/tree/125eb02fbd28b443fe922334ae09823d4ad38df6). The notch path is adapted from its [`NotchShape.swift`](https://github.com/akalikbergenov/cyclop/blob/125eb02fbd28b443fe922334ae09823d4ad38df6/Sources/Cyclop/UI/NotchShape.swift), and the layout/interaction design follows its SwiftUI implementation. The macOS sources are no longer kept in this repository. The upstream copyright notice and MIT license are retained at the repository root. This is an independent Windows adaptation, not an official Windows release by the original author.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for runtime dependency licensing.
 
