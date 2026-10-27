@@ -14,6 +14,7 @@ def test_startup_report_and_clean_exit(tmp_path):
     assert result.returncode == 0, result.stderr
     report = json.loads((tmp_path / "startup-check.json").read_text())
     assert report["success"] is True
-    assert report["pane_count"] == 10
+    assert report["pane_count"] == 12
+    assert report["mascot_rendered"] is True
     assert (tmp_path / "startup-panel.png").stat().st_size > 0
     assert not (tmp_path / "instance.lock").exists()

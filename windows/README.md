@@ -17,6 +17,12 @@ cd windows
 .\.venv\Scripts\python.exe -m cyclop_windows
 ```
 
+Voice commands and transcription need the optional speech package from source (the portable builds include it):
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[speech]"
+```
+
 For a manual first installation:
 
 ```powershell
@@ -49,19 +55,47 @@ This runs the test suite and creates `dist\CyclopWindows-win-x64.zip`. The stand
 
 - Hover over the top-center notch for approximately 100 ms to expand. Move away for approximately 250 ms to collapse.
 - Hover over a rail icon for 100 ms, or click it, to change tools. Open dialogs and dropdowns suspend hover switching.
-- **Ctrl+Alt+Space** toggles the panel; **Escape** collapses it.
+- **Ctrl+Alt+Space** toggles the panel; **Escape** collapses it. Opening from the tray icon, the notch, Cyclop or a shortcut keeps the panel open until you visit it and leave, click into another app, or press Escape.
+- **Tabs cycle in a loop**: Ctrl+Tab / Ctrl+Shift+Tab (or Ctrl+PgDown / PgUp), the mouse wheel over either icon rail or the title, or a click on the title (`MUSIC ›`) moves to the next tab; past the last tab it wraps to the first.
+- The quick-settings button (four squares) opens a Windows 11-style flyout with **Keep awake**, **Text capture**, **Voice**, **Record**, **Hide contents**, **Keep open** tiles and an output-volume slider.
 - The pin holds the panel open; the eye hides the current contents.
 - Typing keeps the panel open while it retains keyboard focus. A running teleprompter also keeps it open.
 - Drag files to the notch to open the shelf. Ctrl-click selects multiple cards; dragging out copies files.
-- The tray menu opens settings, toggles text capture, hides contents, or quits.
+- The tray menu opens quick settings and settings, toggles keep-awake, starts text capture or a voice command, toggles clipboard capture and the mascot, hides contents, or quits.
 - Select a monitor in Settings. Placement uses the monitor's work area, leaving a top-mounted taskbar accessible. Qt handles logical coordinates at different DPI settings.
 - No automatic startup is installed. To start at sign-in, create a shortcut to the portable executable in your Windows Startup folder.
+
+## Cyclop mascot
+
+A 3D floating eye orb sits beside the notch (red by default; other eye colours in Settings). It is ray-traced per pixel: a glossy sphere with key and fill lights, studio reflections, a rim light, a glowing fibred iris that looks around, follows the pointer and blinks, and eyelids that close over it. After an idle period (8 s by default) it slides up so only a sliver stays visible; hover the sliver to bring it back.
+
+- **Click** Cyclop to give a voice command (when voice commands are on) or to open the panel. **Right-click** for the tray menu.
+- **System stats** (optional): CPU, RAM, GPU and temperature appear under Cyclop as coloured numbers — green, yellow at 50/60, red at 80. Hover for details. GPU uses the Windows 3D-engine counter (any GPU) with NVIDIA NVML as fallback; temperature uses ACPI thermal zones or the NVIDIA GPU sensor. Some PCs expose no temperature to normal apps; then it shows `Temp –`.
+- The `.exe`, tray and window icons are a flat 2D version of the same eye.
+
+## Shortcuts
+
+All global shortcuts can be changed or reset in **Settings → Shortcuts**, and each feature can be switched off in **Settings → Features**.
+
+| Shortcut | Action |
+|---|---|
+| Ctrl+Alt+Space | Show or hide the panel |
+| Ctrl+Shift+X | **Image → text**: drag a rectangle on a frozen screenshot; Windows OCR reads it offline and copies the text |
+| Ctrl+Alt+D | **Define** the selected word in a popup (Wiktionary) |
+| Ctrl+Alt+T | **Translate** the selected text in its own popup (offline Argos); edit the text there to retranslate |
+| Ctrl+Alt+V | **Voice command** (when enabled); press again to stop early |
+
+Ctrl+N was not used for text capture because it is "New" in almost every Windows app.
+
+### Voice commands
+
+Voice commands run offline with Whisper and only perform allow-listed actions through Windows APIs. English and Russian phrases work, for example: "open Notepad / calculator / explorer / settings / task manager / terminal / browser / YouTube", "открой калькулятор", "search for …" / "найди …", "volume up/down", "громче/тише", "mute", "next / previous track", "pause", "lock the computer", "capture text", "keep awake" / "не засыпай", "allow sleep", "what time is it", "start recording", "show notes" (any Cyclop tab), "hide". Unrecognised speech is shown, never executed.
 
 ## Tools
 
 | Tool | Implemented behavior | Windows differences |
 |---|---|---|
-| Music | Current session metadata/artwork, previous, play/pause, next and seek | Uses Windows Global System Media Transport Controls. Only apps exposing a media session are available, and controls depend on each player's capabilities. |
+| Music | Current session metadata/artwork, previous, play/pause, next and seek; **app volume** slider (follows the playing app, e.g. the browser playing YouTube, or pick any app) and **output volume** | Uses Windows Global System Media Transport Controls. Only apps exposing a media session are available, and controls depend on each player's capabilities. |
 | Shelf | Persistent file references, image previews, multi-file drag in/out, clipboard-image capture when enabled | Double-click reveals the containing folder. Removing a card never deletes the original. No Apple Universal Clipboard or AirDrop. |
 | Clipboard | Opt-in text capture, 40 deduplicated entries, click to copy, clear/pause | Session-only. Honors Windows exclusion formats where apps supply them; cannot reliably identify all passwords. |
 | Snippets | Add/edit/remove reusable text; click to copy; JSON persistence | Local plain text. |
@@ -70,7 +104,9 @@ This runs the test suite and creates `dist\CyclopWindows-win-x64.zip`. The stand
 | Currency | Daily rates, local cache, conversion in either field, swap currencies | Explicit Fetch rates button contacts Frankfurter v2. Cached rate date remains visible; no live-market claim. |
 | Notes | Multiple auto-saved scratch notes, create/delete/copy | Local plain text. |
 | Teleprompter | Editable script, start/pause/reset, speed in pixels per second | Scrolls near the top-center camera position. |
-| Settings | Hover options, monitor selection, tab visibility, optional image capture, data folder | One panel on a selected monitor, not one on every monitor. |
+| Text capture | Capture area button and Ctrl+Shift+X; preview, editable result, Copy, Translate | Windows.Media.Ocr, offline. Recognises the OCR languages installed in Windows (Settings → Time & language). |
+| Recorder | Record the default microphone to WAV, play, move to Recycle Bin, offline Whisper transcription saved as `.txt` beside the recording | Speech model (tiny/base/small) is downloaded on first transcription. |
+| Settings | Panel, mascot, stats, feature toggles, speech model/language, editable shortcuts, tab visibility, monitor, data folder | One panel on a selected monitor, not one on every monitor. |
 
 Not implemented: the upstream keyboard-cleaning lock, per-section privacy rules, screen-capture folder watcher, cloud calendar authentication, mirrored panels across monitors, automatic updates, macOS integrations, native Windows installer and code signing. Hidden tabs stop their active services. Removing/hiding the shelf does not remove captured screenshots from disk.
 
@@ -97,8 +133,13 @@ Data directory: `%LOCALAPPDATA%\CyclopWindows`.
 - Writes replace JSON files atomically. Invalid JSON is retained in an `*.invalid-*.json` recovery file.
 - Rates are the only network request in normal operation, and only after pressing Fetch rates. That request contains a fixed EUR base; it does not contain your amount or other tool content.
 - Joining a calendar call opens the event's HTTPS meeting URL in the default browser. Only recognized meeting-service domains are offered.
+- Define (Ctrl+Alt+D) sends only the selected word to Wiktionary, and only while "Allow online dictionary lookups" is on.
+- Recordings (`recordings\*.wav` and transcripts) stay in the data folder. Speech models download once from Hugging Face into `models\`; recognition then runs offline. The microphone is opened only while recording or listening for a command.
+- Text capture keeps the frozen screenshot in memory only; recognition is local.
+- Define/translate read your selection with a synthetic Ctrl+C and then restore the previous clipboard; that copy is not added to clipboard history.
+- Keep awake blocks sleep and screen-off only while it is on and Cyclop is running.
 - Translation installation and Python dependency installation use their respective package servers.
-- There is no analytics, credential collection, automatic calendar upload, or arbitrary command execution from copied text.
+- There is no analytics, credential collection, automatic calendar upload, or arbitrary command execution from copied text or speech.
 
 Set `CYCLOP_DATA_DIR` to an alternate directory for testing. Do not commit that directory to Git.
 
@@ -106,7 +147,7 @@ Set `CYCLOP_DATA_DIR` to an alternate directory for testing. Do not commit that 
 
 ```powershell
 cd windows
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,speech]"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
@@ -129,15 +170,25 @@ The hosted build does not replace these checks on a real Windows 11 desktop:
 - Install translation models and test both language directions offline.
 - Fetch rates, disconnect the network and use the dated cache.
 - Run a long teleprompter script and verify speed, pause, reset and end-of-script behavior.
+- Single-click the tray icon: the panel stays open; click another app to dismiss it.
+- Ctrl+Shift+X on English and Russian text; Ctrl+Alt+D / Ctrl+Alt+T on a selection in a browser and Word.
+- Toggle Keep awake and confirm with `powercfg /requests`.
+- Move the app-volume slider while YouTube plays in a browser; move the output slider.
+- Record, transcribe, and give voice commands with the speech model installed.
+- Watch Cyclop slide up after the idle time, then hover to reveal; enable stats and compare with Task Manager.
 
 ## Architecture
 
-- `app.py`: window geometry, animation, hover state, rails, tray, hotkey and lifecycle.
+- `app.py`: window geometry, animation, hover state, rails and tab cycling; the `Cyclop` controller wires tray, shortcuts, mascot, voice, text capture, lookups and keep-awake.
+- `mascot.py`: ray-traced 3D eye renderer, animated mascot window and the 2D icon/`.ico` writer.
+- `features.py`: text capture, recorder, volume, quick-settings flyout and settings panes.
+- `capture.py`: freeze-frame region selector; `popups.py`: selection grabber and define/translate popup.
+- `speech.py`: microphone recorder and faster-whisper transcription; `system.py`: stats sampler and Core Audio volume.
 - `panes.py`: native Qt tool widgets.
 - `model.py`: shared state, persistence, clipboard handling and background-job coordination.
 - `services.py`: WinRT media worker, public rate retrieval and optional offline translation.
-- `windows.py`: Windows clipboard exclusions and system-wide hotkey.
-- `core.py`: platform-independent persistence, conversion and calendar logic.
+- `windows.py`: Windows clipboard exclusions, global hotkeys, keep-awake, media keys, PDH performance counters.
+- `core.py`: platform-independent persistence, conversion, calendar, config, hotkey parsing, voice-command and dictionary logic.
 - `theme.py`: styling and original vector icons.
 
 ## Credits and license

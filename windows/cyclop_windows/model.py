@@ -5,7 +5,7 @@ import uuid
 from PySide6.QtCore import QObject, QThreadPool, Signal
 from PySide6.QtWidgets import QApplication
 
-from .core import Store, DEFAULTS, ClipboardHistory, normalise_paths, sensitive_formats
+from .core import Store, ClipboardHistory, normalise_config, normalise_paths, sensitive_formats
 from .services import Job
 from .windows import clipboard_is_private
 
@@ -20,9 +20,11 @@ class Model(QObject):
     def __init__(self, directory=None):
         super().__init__()
         self.store = Store(directory)
-        self.config = DEFAULTS | self.store.load("config", {})
+        self.config = normalise_config(self.store.load("config", {}))
         if not isinstance(self.config.get("disabled_tabs"), list):
             self.config["disabled_tabs"] = []
+        # Set while Cyclop itself reads the selection via a synthetic copy.
+        self.suppress_capture = False
         self.shelf = normalise_paths(p for p in self.store.load("shelf", []) if isinstance(p, str))
         self.snippets = [s for s in self.store.load("snippets", []) if isinstance(s, dict) and isinstance(s.get("text"), str) and isinstance(s.get("title"), str)]
         self.notes = [n for n in self.store.load("notes", []) if isinstance(n, dict) and isinstance(n.get("text"), str) and isinstance(n.get("id"), str)]
@@ -78,7 +80,7 @@ class Model(QObject):
         disabled = self.config["disabled_tabs"]
         capture_text = self.config["clipboard_enabled"] and "clipboard" not in disabled
         capture_image = self.config["capture_images"] and "shelf" not in disabled
-        if self.copying or not (capture_text or capture_image) or clipboard_is_private():
+        if self.copying or self.suppress_capture or not (capture_text or capture_image) or clipboard_is_private():
             return
         clipboard = QApplication.clipboard()
         data = clipboard.mimeData()

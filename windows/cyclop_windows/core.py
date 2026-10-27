@@ -13,6 +13,16 @@ import os
 import re
 import tempfile
 
+HOTKEYS = {
+    "panel": ("Show or hide the panel", "Ctrl+Alt+Space"),
+    "ocr": ("Capture text from a screen area", "Ctrl+Shift+X"),
+    "define": ("Define the selected word", "Ctrl+Alt+D"),
+    "translate": ("Translate the selected text", "Ctrl+Alt+T"),
+    "voice": ("Listen for a voice command", "Ctrl+Alt+V"),
+}
+
+IRIS_COLORS = {"Red": "#ff3b30", "Teal": "#3fd6c6", "Violet": "#9b7bff", "Amber": "#ffb347", "Green": "#6ee07a", "Blue": "#5aa9ff"}
+
 DEFAULTS = {
     "clipboard_enabled": False,
     "capture_images": False,
@@ -21,7 +31,199 @@ DEFAULTS = {
     "screen": "",
     "disabled_tabs": [],
     "calendar_path": "",
+    # Panel behaviour
+    "tab_cycling": True,
+    # Mascot
+    "mascot_enabled": True,
+    "mascot_autohide": True,
+    "mascot_autohide_seconds": 8,
+    "mascot_follow_cursor": True,
+    "mascot_iris": "Red",
+    # System stats under the mascot
+    "stats_enabled": False,
+    "stats_items": ["cpu", "ram", "gpu", "temp"],
+    # Features
+    "ocr_enabled": True,
+    "lookup_enabled": True,
+    "lookup_online": True,
+    "voice_enabled": False,
+    "awake_enabled": True,
+    "volume_enabled": True,
+    "whisper_model": "base",
+    "speech_language": "auto",
+    "hotkeys": {key: value[1] for key, value in HOTKEYS.items()},
 }
+
+STAT_KEYS = {"cpu": "CPU", "ram": "RAM", "gpu": "GPU", "temp": "Temp"}
+
+
+def normalise_config(config: dict) -> dict:
+    """Repair types of user-editable values so a bad file can never crash startup."""
+    result = copy.deepcopy(DEFAULTS)
+    for key, value in config.items():
+        if key not in DEFAULTS:
+            result[key] = value
+        elif isinstance(DEFAULTS[key], bool):
+            result[key] = bool(value) if isinstance(value, (bool, int)) else DEFAULTS[key]
+        elif isinstance(DEFAULTS[key], int):
+            result[key] = int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else DEFAULTS[key]
+        elif isinstance(value, type(DEFAULTS[key])):
+            result[key] = value
+    result["mascot_autohide_seconds"] = min(120, max(2, result["mascot_autohide_seconds"]))
+    result["stats_items"] = [item for item in result["stats_items"] if item in STAT_KEYS]
+    hotkeys = dict(DEFAULTS["hotkeys"])
+    hotkeys.update({k: v for k, v in result["hotkeys"].items() if k in HOTKEYS and isinstance(v, str)})
+    result["hotkeys"] = hotkeys
+    if result["mascot_iris"] not in IRIS_COLORS:
+        result["mascot_iris"] = DEFAULTS["mascot_iris"]
+    if result["whisper_model"] not in ("tiny", "base", "small"):
+        result["whisper_model"] = DEFAULTS["whisper_model"]
+    if result["speech_language"] not in ("auto", "en", "ru"):
+        result["speech_language"] = "auto"
+    return result
+
+
+MODIFIERS = {"alt": 0x0001, "ctrl": 0x0002, "control": 0x0002, "shift": 0x0004, "win": 0x0008, "meta": 0x0008}
+NAMED_KEYS = {"space": 0x20, "tab": 0x09, "enter": 0x0D, "return": 0x0D, "esc": 0x1B, "escape": 0x1B,
+              "insert": 0x2D, "ins": 0x2D, "delete": 0x2E, "del": 0x2E, "home": 0x24, "end": 0x23,
+              "pgup": 0x21, "pageup": 0x21, "pgdown": 0x22, "pagedown": 0x22,
+              "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
+              "`": 0xC0, "-": 0xBD, "=": 0xBB, "[": 0xDB, "]": 0xDD, ";": 0xBA, "'": 0xDE,
+              ",": 0xBC, ".": 0xBE, "/": 0xBF, "\\": 0xDC}
+
+
+def parse_hotkey(text: str) -> tuple[int, int]:
+    """Convert "Ctrl+Shift+X" into Win32 RegisterHotKey (modifiers, virtual key)."""
+    parts = [p.strip().lower() for p in text.replace(" ", "").split("+")]
+    if len(parts) < 2 or not all(parts):
+        raise ValueError("Use at least one modifier and one key, e.g. Ctrl+Shift+X")
+    *mods, key = parts
+    modifiers = 0
+    for mod in mods:
+        if mod not in MODIFIERS:
+            raise ValueError(f"Unknown modifier: {mod}")
+        modifiers |= MODIFIERS[mod]
+    if len(key) == 1 and key.isalnum():
+        vk = ord(key.upper())
+    elif re.fullmatch(r"f([1-9]|1[0-9]|2[0-4])", key):
+        vk = 0x6F + int(key[1:])
+    elif key in NAMED_KEYS:
+        vk = NAMED_KEYS[key]
+    else:
+        raise ValueError(f"Unsupported key: {key}")
+    return modifiers, vk
+
+
+def cycle(order: list[str], current: str, step: int) -> str:
+    """Next item in a ring: moving past the last tab returns to the first."""
+    if not order:
+        return current
+    if current not in order:
+        return order[0]
+    return order[(order.index(current) + step) % len(order)]
+
+
+def stat_color(key: str, value: float | None) -> str:
+    if value is None:
+        return "#6b6b6b"
+    low, high = (60, 80) if key == "temp" else (50, 80)
+    return "#6ee07a" if value < low else "#ffcc4d" if value < high else "#ff5f57"
+
+
+def stat_label(key: str, value: float | None) -> str:
+    if value is None:
+        return f"{STAT_KEYS[key]} –"
+    return f"{STAT_KEYS[key]} {value:.0f}°" if key == "temp" else f"{STAT_KEYS[key]} {value:.0f}%"
+
+
+# ---------------------------------------------------------------- voice commands
+APPS = {
+    "notepad": ("Notepad", "notepad.exe"), "блокнот": ("Notepad", "notepad.exe"),
+    "calculator": ("Calculator", "calc.exe"), "калькулятор": ("Calculator", "calc.exe"),
+    "explorer": ("File Explorer", "explorer.exe"), "files": ("File Explorer", "explorer.exe"), "проводник": ("File Explorer", "explorer.exe"),
+    "paint": ("Paint", "mspaint.exe"), "пейнт": ("Paint", "mspaint.exe"),
+    "task manager": ("Task Manager", "taskmgr.exe"), "диспетчер задач": ("Task Manager", "taskmgr.exe"),
+    "settings": ("Settings", "ms-settings:"), "настройки": ("Settings", "ms-settings:"), "параметры": ("Settings", "ms-settings:"),
+    "terminal": ("Terminal", "wt.exe"), "терминал": ("Terminal", "wt.exe"),
+    "browser": ("Browser", "https://www.bing.com"), "браузер": ("Browser", "https://www.bing.com"),
+    "youtube": ("YouTube", "https://www.youtube.com"), "ютуб": ("YouTube", "https://www.youtube.com"),
+    "snipping tool": ("Snipping Tool", "ms-screenclip:"), "ножницы": ("Snipping Tool", "ms-screenclip:"),
+}
+
+TAB_WORDS = {
+    "music": "music", "музыка": "music", "media": "music", "shelf": "shelf", "полка": "shelf",
+    "clipboard": "clipboard", "буфер": "clipboard", "snippets": "snippets", "calendar": "calendar",
+    "календарь": "calendar", "translator": "translate", "переводчик": "translate", "notes": "notes",
+    "заметки": "notes", "currency": "currency", "валюта": "currency", "валюты": "currency",
+    "teleprompter": "teleprompter", "телесуфлер": "teleprompter", "recorder": "recorder",
+    "диктофон": "recorder", "запись": "recorder",
+}
+
+_PHRASES = [
+    (r"\b(volume up|louder|turn it up|громче|прибавь)\b", {"action": "key", "key": "volume_up"}),
+    (r"\b(volume down|quieter|turn it down|тише|убавь)\b", {"action": "key", "key": "volume_down"}),
+    (r"\b(mute|unmute|выключи звук|включи звук|без звука)\b", {"action": "key", "key": "mute"}),
+    (r"\b(next( track| song)?|skip|следующ\w*|дальше)\b", {"action": "key", "key": "next"}),
+    (r"\b(previous( track| song)?|go back|предыдущ\w*|назад)\b", {"action": "key", "key": "previous"}),
+    (r"\b(pause|play|resume|stop the music|пауза|продолжи|воспроизвед\w*|стоп)\b", {"action": "key", "key": "play"}),
+    (r"\b(lock( the)?( screen| computer| pc)?|заблокируй|блокировка)\b", {"action": "lock"}),
+    (r"\b(capture text|read the screen|text capture|распознай|скопируй текст с экрана)\b", {"action": "ocr"}),
+    (r"\b(stay awake|keep awake|не засыпай|не спи)\b", {"action": "awake", "value": True}),
+    (r"\b(allow sleep|you can sleep|можно спать|разреши сон)\b", {"action": "awake", "value": False}),
+    (r"\b(what time|time is it|который час|сколько времени)\b", {"action": "time"}),
+    (r"\b(start recording|record audio|начни запись|запиши)\b", {"action": "record"}),
+    (r"\b(hide|close the panel|скрой|закрой панель)\b", {"action": "panel", "value": False}),
+]
+
+
+def parse_command(text: str) -> dict:
+    """Map a transcript onto an allow-listed action. Unknown speech never runs anything."""
+    spoken = " ".join(re.sub(r"[^\w\s'-]", " ", text.lower()).split())
+    if not spoken:
+        return {"action": "none", "text": text}
+    search = re.match(r"^(?:please )?(?:search(?: for)?|google|look up|найди|поищи|загугли)\s+(.+)$", spoken)
+    if search:
+        return {"action": "search", "query": search.group(1)}
+    opening = re.match(r"^(?:please )?(?:open|launch|start|run|show|открой|запусти|покажи|включи)\s+(?:the |my )?(.+)$", spoken)
+    if opening:
+        target = opening.group(1).strip()
+        for word, tab in TAB_WORDS.items():
+            if target == word or target.startswith(word + " "):
+                return {"action": "tab", "tab": tab}
+        for word in sorted(APPS, key=len, reverse=True):
+            if target == word or target.startswith(word):
+                name, command = APPS[word]
+                return {"action": "open", "name": name, "target": command}
+    for pattern, intent in _PHRASES:
+        if re.search(pattern, spoken):
+            return dict(intent)
+    return {"action": "none", "text": text}
+
+
+# ---------------------------------------------------------------- dictionary
+def lookup_word(text: str) -> str | None:
+    """A definable term: one word or a short hyphenated/compound expression."""
+    term = text.strip().strip(".,;:!?\"'«»“”„‘’()[]{} ")
+    if not term or len(term) > 48 or "\n" in term or len(term.split()) > 3:
+        return None
+    return term
+
+
+def parse_wiktionary(payload: dict, prefer: tuple[str, ...] = ("en", "ru")) -> list[tuple[str, str]]:
+    """Flatten Wiktionary REST definitions into (part of speech, plain text) pairs."""
+    entries = []
+    languages = list(prefer) + [code for code in payload if code not in prefer]
+    for code in languages:
+        for entry in payload.get(code, []) if isinstance(payload.get(code), list) else []:
+            part = str(entry.get("partOfSpeech", ""))
+            for definition in entry.get("definitions", [])[:4]:
+                plain = re.sub(r"<[^>]+>", "", str(definition.get("definition", "")))
+                plain = " ".join(plain.replace("&nbsp;", " ").replace("&amp;", "&").split())
+                if plain:
+                    entries.append((part, plain))
+        if entries:
+            break
+    return entries[:8]
 
 
 def data_directory() -> Path:

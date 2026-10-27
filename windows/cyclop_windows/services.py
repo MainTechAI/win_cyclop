@@ -36,7 +36,7 @@ class Job(QRunnable):
 
 def fetch_rates():
     # Fixed public endpoint: amounts, clipboard and notes are never transmitted.
-    request = Request("https://api.frankfurter.dev/v2/rates?base=EUR", headers={"User-Agent": "CyclopWindows/0.1"})
+    request = Request("https://api.frankfurter.dev/v2/rates?base=EUR", headers={"User-Agent": "CyclopWindows/0.2"})
     with urlopen(request, timeout=15) as response:
         payload = response.read(1_000_001)
     if len(payload) > 1_000_000:
@@ -165,3 +165,85 @@ class MediaWorker(QThread):
             except Exception as exc:
                 self.error.emit(f"Media session changed or is unavailable: {exc}")
             await asyncio.sleep(.5)
+
+
+# ---------------------------------------------------------------- text recognition
+def _winrt_run(coroutine_factory):
+    """Run WinRT async work on this worker thread inside a multithreaded apartment."""
+    from winrt.runtime import init_apartment, uninit_apartment, ApartmentType
+    initialised = False
+    try:
+        init_apartment(ApartmentType.MULTI_THREADED)
+        initialised = True
+    except Exception:
+        pass  # Apartment already set up for this pool thread.
+    try:
+        return asyncio.run(coroutine_factory())
+    finally:
+        if initialised:
+            uninit_apartment()
+
+
+def ocr_png(png: bytes, language: str = "") -> str:
+    """Recognise text in a PNG with the built-in Windows OCR engine (offline)."""
+    if sys.platform != "win32":
+        raise RuntimeError("Text capture uses Windows OCR and runs on Windows 10/11")
+
+    async def recognise():
+        from winrt.windows.storage.streams import InMemoryRandomAccessStream, DataWriter
+        from winrt.windows.graphics.imaging import BitmapDecoder, BitmapPixelFormat, BitmapAlphaMode, SoftwareBitmap
+        from winrt.windows.media.ocr import OcrEngine
+        from winrt.windows.globalization import Language
+
+        stream = InMemoryRandomAccessStream()
+        writer = DataWriter(stream.get_output_stream_at(0))
+        writer.write_bytes(png)
+        await writer.store_async()
+        await writer.flush_async()
+        writer.detach_stream()
+        stream.seek(0)
+        decoder = await BitmapDecoder.create_async(stream)
+        bitmap = await decoder.get_software_bitmap_async()
+        if bitmap.bitmap_pixel_format != BitmapPixelFormat.BGRA8:
+            bitmap = SoftwareBitmap.convert(bitmap, BitmapPixelFormat.BGRA8, BitmapAlphaMode.PREMULTIPLIED)
+        engine = None
+        if language and OcrEngine.is_language_supported(Language(language)):
+            engine = OcrEngine.try_create_from_language(Language(language))
+        engine = engine or OcrEngine.try_create_from_user_profile_languages()
+        if engine is None:
+            raise RuntimeError("No Windows OCR language is installed. Add a language with OCR in Settings → Time & language.")
+        result = await engine.recognize_async(bitmap)
+        return "\n".join(line.text for line in result.lines)
+
+    return _winrt_run(recognise).strip()
+
+
+def ocr_languages() -> list[str]:
+    if sys.platform != "win32":
+        return []
+    from winrt.windows.media.ocr import OcrEngine
+    return [language.language_tag for language in OcrEngine.available_recognizer_languages]
+
+
+# ---------------------------------------------------------------- dictionary
+def fetch_definition(term: str):
+    """Definitions from Wiktionary's public REST API. Only the selected term is sent."""
+    from urllib.parse import quote
+    from urllib.error import HTTPError
+    from .core import parse_wiktionary
+    for candidate in dict.fromkeys((term, term.lower())):
+        url = "https://en.wiktionary.org/api/rest_v1/page/definition/" + quote(candidate.replace(" ", "_"), safe="")
+        request = Request(url, headers={"User-Agent": "CyclopWindows/0.2 (https://github.com/MainTechAI/win_cyclop)"})
+        try:
+            with urlopen(request, timeout=10) as response:
+                payload = response.read(2_000_001)
+        except HTTPError as exc:
+            if exc.code == 404:
+                continue
+            raise
+        if len(payload) > 2_000_000:
+            raise ValueError("Dictionary response exceeds size limit")
+        entries = parse_wiktionary(json.loads(payload))
+        if entries:
+            return entries
+    return []

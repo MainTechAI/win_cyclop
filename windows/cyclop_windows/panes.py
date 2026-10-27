@@ -61,7 +61,7 @@ class Pane(QWidget):
 
 
 class MediaPane(Pane):
-    def __init__(self, model, start_service=True):
+    def __init__(self, model, start_service=True, volume=None):
         super().__init__(model)
         self.art = QLabel()
         self.art.setFixedSize(108, 108)
@@ -105,6 +105,15 @@ class MediaPane(Pane):
         self.duration = 0
         self.seek.sliderReleased.connect(lambda: self.worker.command("seek", self.seek.value() / 1000 * self.duration))
         self.layout.addLayout(row(self.elapsed, self.seek, self.remaining))
+        self.volume = None
+        if volume is not None:
+            from .features import VolumeControls
+            self.volume = VolumeControls(model, volume)
+            self.layout.addWidget(self.volume)
+            show = lambda: self.volume.setVisible(bool(model.config["volume_enabled"]) and volume.available)
+            model.config_changed.connect(show)
+            show()
+        self.layout.addStretch()
         self.worker.state.connect(self.update_state)
         self.worker.error.connect(self.media_error)
         self.previous_art = None
@@ -121,6 +130,8 @@ class MediaPane(Pane):
         self.title.setText(state.get("title", "Nothing playing"))
         self.artist.setText(state.get("artist", state.get("message", "Play media in an app that supports Windows media controls.")))
         self.source.setText(state.get("source", "").split("!")[0])
+        if self.volume is not None and available:
+            self.volume.set_media_source(state.get("source", ""))
         self.controls["play"].setIcon(icon("pause" if state.get("playing") else "play"))
         for name, control in self.controls.items():
             control.setEnabled(available and state.get("can_" + name, False))
@@ -145,6 +156,8 @@ class MediaPane(Pane):
             self.worker.enabled.set()
         else:
             self.worker.enabled.clear()
+        if self.volume is not None:
+            self.volume.activated(active)
 
 
 class ShelfList(QListWidget):
@@ -674,45 +687,3 @@ class TeleprompterPane(Pane):
     def flush(self):
         self.save_timer.stop()
         self.model.persist("prompter", {"text": self.text.toPlainText(), "speed": self.speed.value()})
-
-
-class SettingsPane(Pane):
-    def __init__(self, model, tab_names):
-        super().__init__(model)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        body = QWidget()
-        content = QVBoxLayout(body)
-        content.setContentsMargins(0, 0, 7, 0)
-        for title, key in (("Open on hover", "hover_open"), ("Switch tabs after hovering an icon", "hover_tabs"), ("Save clipboard images to the shelf", "capture_images")):
-            control = QCheckBox(title)
-            control.setChecked(bool(model.config[key]))
-            control.toggled.connect(lambda checked, key=key: model.configure(key, checked))
-            content.addWidget(control)
-        content.addWidget(label("Display", True))
-        self.screens = PanelComboBox()
-        self.screens.addItem("Primary display", "")
-        for screen in QApplication.screens():
-            self.screens.addItem(screen.name(), screen.name())
-        self.screens.setCurrentIndex(max(0, self.screens.findData(model.config["screen"])))
-        self.screens.currentIndexChanged.connect(lambda: model.configure("screen", self.screens.currentData()))
-        content.addWidget(self.screens)
-        content.addWidget(label("Show in panel", True))
-        for key, name in tab_names.items():
-            if key == "settings":
-                continue
-            control = QCheckBox(name)
-            control.setChecked(key not in model.config["disabled_tabs"])
-            control.toggled.connect(lambda checked, key=key: self.toggle_tab(key, checked))
-            content.addWidget(control)
-        content.addWidget(label("Ctrl+Alt+Space toggles the panel. Escape collapses it.\nClipboard history is session-only. Notes and snippets are plain local files, not a password vault.\nCurrency requests happen only when you press Fetch rates.", True))
-        content.addWidget(button("Open data folder", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(model.store.directory)))))
-        content.addStretch()
-        scroll.setWidget(body)
-        self.layout.addWidget(scroll)
-
-    def toggle_tab(self, key, checked):
-        disabled = set(self.model.config["disabled_tabs"])
-        disabled.discard(key) if checked else disabled.add(key)
-        self.model.configure("disabled_tabs", sorted(disabled))
