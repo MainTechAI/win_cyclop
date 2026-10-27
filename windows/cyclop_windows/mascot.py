@@ -284,6 +284,8 @@ class MascotWindow(QWidget):
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.anchor = QRect()
+        self.orb_left = float(self.MARGIN)      # orb position inside the window
+        self.footer_left = 0.0                  # stats pill position inside the window
         self.state = "idle"
         self.level = 0.0
         self.stats = {}
@@ -336,7 +338,7 @@ class MascotWindow(QWidget):
         self.orbit_total, self.orbit_started = 0.0, now
         self.near = False
         self.input_tick = 0
-        self.last_typing = 0.0
+        self.last_typing = -1e9  # "never", whatever the clock origin
         self.reading_start = now
         self.clicks: list[float] = []
         self.face = None             # (x, y) in [0, 1], mirrored camera coordinates
@@ -425,23 +427,20 @@ class MascotWindow(QWidget):
         return 22 if (self.stats_visible() or self.caption) else 0
 
     def orb_rect(self) -> QRectF:
-        return QRectF((self.width() - self.ORB) / 2, self.MARGIN, self.ORB, self.ORB)
+        return QRectF(self.orb_left, self.MARGIN, self.ORB, self.ORB)
 
     def footer_rect(self) -> QRectF:
-        return QRectF(0, self.MARGIN + self.ORB + 6, self.width(), self.footer_height() - 2)
+        return QRectF(self.footer_left, self.MARGIN + self.ORB + 6, max(1, self.footer_width()), self.footer_height() - 2)
 
     def handle_rect(self) -> QRectF:
         """The slim glowing tab left at the screen edge when tucked without stats."""
-        return QRectF(self.width() / 2 - 22, self.MARGIN + self.ORB + 6, 44, 7)
+        return QRectF(self.orb_rect().center().x() - 22, self.MARGIN + self.ORB + 6, 44, 7)
 
     def apply_config(self):
         config = self.model.config
         if not config["mascot_enabled"]:
             self.hide()
             return
-        width = max(self.ORB + 2 * self.MARGIN, self.footer_width() + 8)
-        height = max(self.ORB + 2 * self.MARGIN, self.MARGIN + self.ORB + 8 + self.footer_height())
-        self.resize(int(width), int(height))
         self.reposition()
         self.show()
         self.reset_hide_timer()
@@ -449,24 +448,66 @@ class MascotWindow(QWidget):
     def set_anchor(self, rect: QRect):
         self.anchor = QRect(rect)
         self.reposition()
+        if self.isVisible():
+            self.raise_()  # never end up underneath the panel
 
     def screen_bounds(self):
         screen = QApplication.screenAt(self.anchor.center()) if not self.anchor.isNull() else None
         return (screen or QApplication.primaryScreen()).availableGeometry()
 
-    def reposition(self):
+    def layout_global(self):
+        """Global x of the eye centre and of the stats pill, plus the side it sits on.
+
+        The eye stays put whether the panel is open or closed: it sits just beside
+        where the *expanded* panel ends, so clicking it twice in the same spot works.
+        The stats pill hangs below the eye but is pushed outwards so it never slides
+        under the notch or the open panel.
+        """
         bounds = self.screen_bounds()
         anchor = self.anchor if not self.anchor.isNull() else QRect(bounds.center().x() - 96, bounds.y(), 192, 28)
-        center_x = anchor.right() + 12 + self.ORB // 2
-        if center_x + self.ORB // 2 > bounds.right():
-            center_x = anchor.left() - 12 - self.ORB // 2
-        x = center_x - self.width() // 2
+        notch_center = anchor.center().x()
+        half_panel = min(644, bounds.width()) // 2
+        gap = 12 + self.ORB / 2
+        pill = self.footer_width()
+        right_side = notch_center + half_panel + gap + self.ORB / 2 + 4 <= bounds.right()
+        if right_side:
+            eye = notch_center + half_panel + gap
+            avoid = notch_center + half_panel + 6           # keep everything right of this
+        elif notch_center - half_panel - gap - self.ORB / 2 - 4 >= bounds.left():
+            eye = notch_center - half_panel - gap
+            avoid = notch_center - half_panel - 6           # keep everything left of this
+        else:  # narrow screen: overlap the panel, but stay on top of it (see set_anchor)
+            eye = min(bounds.right() - self.ORB / 2 - 4, notch_center + 96 + gap)
+            avoid = None
+        pill_left = eye - pill / 2
+        if avoid is not None and right_side:
+            pill_left = max(pill_left, avoid)
+        elif avoid is not None:
+            pill_left = min(pill_left, avoid - pill)
+        pill_left = max(bounds.left() + 2, min(pill_left, bounds.right() - pill - 2))
+        return eye, pill_left, pill, (avoid, right_side)
+
+    def reposition(self):
+        bounds = self.screen_bounds()
+        eye, pill_left, pill, (avoid, right_side) = self.layout_global()
+        orb_left_global = eye - self.ORB / 2
+        left = min(orb_left_global - self.MARGIN, pill_left if pill else orb_left_global)
+        right = max(orb_left_global + self.ORB + self.MARGIN, pill_left + pill if pill else 0)
+        if avoid is not None and right_side:
+            left = max(left, avoid)    # no invisible margin over the open panel
+        elif avoid is not None:
+            right = min(right, avoid)
+        left, right = int(math.floor(left)), int(math.ceil(right))
+        self.orb_left = orb_left_global - left
+        self.footer_left = pill_left - left
+        width = max(1, right - left)
+        height = max(self.ORB + 2 * self.MARGIN, self.MARGIN + self.ORB + 8 + self.footer_height())
         shown_top = bounds.y() + 4
         # Tucked: the whole eye sits above the screen edge; the stats pill (or a
         # slim red handle) is left docked at the top edge.
         tucked_top = bounds.y() - self.ORB - 6
         orb_top = shown_top + (tucked_top - shown_top) * self.offset
-        self.move(x, int(round(orb_top - self.MARGIN)))
+        self.setGeometry(left, int(round(orb_top - self.MARGIN)), width, int(height))
 
     def _slid(self, value):
         self.offset = float(value)
@@ -967,7 +1008,7 @@ class MascotWindow(QWidget):
     def paint_sonar(self, painter, center, now):
         red = QColor(SONAR)
         radius = self.ORB / 2
-        reach = min(self.MARGIN, (self.width() - self.ORB) / 2) - 2
+        reach = self.MARGIN - 2
         if now < self.sweeping_until:
             from PySide6.QtGui import QConicalGradient
             sweep = QConicalGradient(center, -self.sweep_angle)

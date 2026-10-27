@@ -20,12 +20,16 @@ from __future__ import annotations
 from collections import deque
 import hashlib
 import math
+import os
 from pathlib import Path
 import sys
 import threading
 import time
 
 from PySide6.QtCore import QThread, Signal
+
+# Media Foundation otherwise probes hardware transforms for seconds when opening a camera.
+os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
 
 MODEL_NAME = "face_detection_yunet_2023mar.onnx"
 MODEL_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
@@ -200,11 +204,60 @@ class GazeCalibrator:
             self.weights = self.error = None
 
 
+# ---------------------------------------------------------------- opening the camera
+class CameraUnavailable(RuntimeError):
+    pass
+
+
+CAMERA_HELP = ("Close other apps that use the camera (Camera, Teams, Zoom, browser tabs), and check "
+               "Windows Settings → Privacy & security → Camera → \"Let desktop apps access your camera\". "
+               "Cyclop retries automatically.")
+
+
+def backends(cv2):
+    """Media Foundation first: it supports Windows 11 camera sharing; DirectShow is often exclusive."""
+    if sys.platform == "win32":
+        return [("Media Foundation", cv2.CAP_MSMF), ("DirectShow", cv2.CAP_DSHOW)]
+    return [("default", cv2.CAP_ANY)]
+
+
+def open_camera(cv2, preferred=0, extra_indices=3):
+    """Open the preferred camera, then others, with each backend; require a real frame.
+
+    Returns (capture, description). Raises CameraUnavailable with what was tried.
+    """
+    indices = [preferred] + [index for index in range(extra_indices + 1) if index != preferred]
+    tried = []
+    opened_but_silent = False
+    for index in indices:
+        for name, backend in backends(cv2):
+            capture = cv2.VideoCapture(index, backend)
+            if not capture.isOpened():
+                capture.release()
+                tried.append(f"{index}/{name}")
+                continue
+            ok = False
+            for _ in range(15):  # some cameras need a few frames to start
+                ok, frame = capture.read()
+                if ok and frame is not None and frame.size:
+                    break
+                time.sleep(0.05)
+            if ok:
+                return capture, f"Camera {index} ({name})"
+            opened_but_silent = True
+            capture.release()
+            tried.append(f"{index}/{name} (no frames)")
+    if opened_but_silent:
+        raise CameraUnavailable("The camera is busy: another app is using it. " + CAMERA_HELP)
+    raise CameraUnavailable("No camera could be opened. " + CAMERA_HELP)
+
+
 # ---------------------------------------------------------------- capture thread
 class FaceTracker(QThread):
     """Reads the webcam at ~10 fps and emits one observation per frame."""
     observation = Signal(object)  # dict or None when no face is visible
     failed = Signal(str)
+    opened = Signal(str)          # which camera and backend is in use
 
     def __init__(self, model_path: Path, camera_index=0, parent=None):
         super().__init__(parent)
@@ -219,13 +272,14 @@ class FaceTracker(QThread):
         try:
             import cv2
         except Exception as exc:
-            self.failed.emit(f"Camera support is unavailable: {exc}")
+            self.failed.emit(f"Camera support is unavailable: {exc}.")
             return
-        backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
-        capture = cv2.VideoCapture(self.camera_index, backend)
-        if not capture.isOpened():
-            self.failed.emit("No camera found, or another app is using it")
+        try:
+            capture, chosen = open_camera(cv2, self.camera_index)
+        except CameraUnavailable as exc:
+            self.failed.emit(str(exc))
             return
+        self.opened.emit(chosen)
         try:
             capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)

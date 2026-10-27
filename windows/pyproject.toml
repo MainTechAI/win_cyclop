@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyclop-windows"
-version = "0.2.2"
+version = "0.2.3"
 description = "Cyclop's notch toolbox, reimplemented for Windows 11"
 requires-python = ">=3.11,<3.14"
 license = "MIT"

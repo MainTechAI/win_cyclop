@@ -194,18 +194,49 @@ def crop(image: QImage, area: QRect, ratio: float) -> QImage:
     return image.copy(source.intersected(image.rect()))
 
 
-def prepare_for_ocr(image: QImage) -> bytes:
-    """Scale small text up (OCR likes ~20 px glyphs) and large regions down; encode PNG."""
-    image = image.convertToFormat(QImage.Format.Format_ARGB32)
-    longest = max(image.width(), image.height())
-    if longest and longest < 900:
-        factor = min(3.0, 900 / longest)
-        image = image.scaled(int(image.width() * factor), int(image.height() * factor),
-                             Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-    if max(image.width(), image.height()) > OCR_MAX_DIMENSION:
-        image = image.scaled(OCR_MAX_DIMENSION, OCR_MAX_DIMENSION, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+def prepare_for_ocr(image: QImage, invert: bool | None = None) -> bytes:
+    """Make a screen region easy for Windows OCR and encode it as PNG.
+
+    Converts to grayscale, turns light-on-dark (dark mode) into dark-on-light,
+    enlarges small or thin regions so glyphs are ~20+ px tall, adds a quiet
+    margin, and keeps within the engine's size limit.
+    """
+    gray = image.convertToFormat(QImage.Format.Format_Grayscale8)
+    if invert is None:
+        invert = is_dark(gray)
+    if invert:
+        gray.invertPixels()
+    width, height = max(1, gray.width()), max(1, gray.height())
+    factor = max(1.0, 900 / max(width, height), 72 / min(width, height))
+    factor = min(factor, 4.0)
+    if factor > 1.0:
+        gray = gray.scaled(int(width * factor), int(height * factor), Qt.AspectRatioMode.KeepAspectRatio,
+                           Qt.TransformationMode.SmoothTransformation)
+    margin = 24
+    limit = OCR_MAX_DIMENSION - 2 * margin
+    if max(gray.width(), gray.height()) > limit:
+        gray = gray.scaled(limit, limit, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    padded = QImage(gray.width() + 2 * margin, gray.height() + 2 * margin, QImage.Format.Format_Grayscale8)
+    padded.fill(QColor(0, 0, 0) if is_dark(gray) else QColor(255, 255, 255))
+    painter = QPainter(padded)
+    painter.drawImage(margin, margin, gray)
+    painter.end()
     data = QByteArray()
     buffer = QBuffer(data)
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    image.save(buffer, "PNG")
+    padded.save(buffer, "PNG")
     return bytes(data)
+
+
+def is_dark(image: QImage) -> bool:
+    """True when the region is mostly dark (light text on a dark background)."""
+    gray = image.convertToFormat(QImage.Format.Format_Grayscale8)
+    sample = gray.scaled(64, 64, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation)
+    total = sum(sample.pixelColor(x, y).value() for y in range(sample.height()) for x in range(sample.width()))
+    return total / (sample.width() * sample.height()) < 128
+
+
+def ocr_variants(image: QImage) -> list[bytes]:
+    """The best guess first, then the opposite polarity as a fallback."""
+    dark = is_dark(image)
+    return [prepare_for_ocr(image, invert=dark), prepare_for_ocr(image, invert=not dark)]

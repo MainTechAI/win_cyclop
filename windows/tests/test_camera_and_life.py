@@ -166,3 +166,75 @@ def test_tuck_hides_the_whole_eye_and_leaves_a_handle(mascot):
     assert handle_top >= mascot.screen_bounds().top() - 1
     assert mascot.hits_body(mascot.handle_rect().center())
     assert not mascot.grab().isNull()
+
+
+class FakeCapture:
+    def __init__(self, opens, frames):
+        self.opens, self.frames = opens, frames
+
+    def isOpened(self):
+        return self.opens
+
+    def read(self):
+        return (True, np.zeros((4, 4, 3), "uint8")) if self.frames else (False, None)
+
+    def release(self):
+        pass
+
+
+class FakeCv2:
+    CAP_MSMF, CAP_DSHOW, CAP_ANY = 1400, 700, 0
+
+    def __init__(self, behaviour):
+        self.behaviour = behaviour  # (index, backend) -> (opens, frames)
+        self.calls = []
+
+    def VideoCapture(self, index, backend):
+        self.calls.append((index, backend))
+        return FakeCapture(*self.behaviour.get((index, backend), (False, False)))
+
+
+@pytest.fixture
+def windows_backends(monkeypatch):
+    import cyclop_windows.camera as camera
+    monkeypatch.setattr(camera.sys, "platform", "win32")
+    monkeypatch.setattr(camera.time, "sleep", lambda seconds: None)
+    return camera
+
+
+def test_camera_opens_with_media_foundation_first(windows_backends):
+    cv2 = FakeCv2({(0, 1400): (True, True), (0, 700): (True, True)})
+    capture, name = windows_backends.open_camera(cv2, 0)
+    assert name == "Camera 0 (Media Foundation)" and cv2.calls == [(0, 1400)]
+
+
+def test_camera_falls_back_to_directshow_and_other_cameras(windows_backends):
+    cv2 = FakeCv2({(0, 700): (True, False), (1, 700): (True, True)})
+    capture, name = windows_backends.open_camera(cv2, 0)
+    assert name == "Camera 1 (DirectShow)"
+    assert cv2.calls[:3] == [(0, 1400), (0, 700), (1, 1400)]
+
+
+def test_busy_and_missing_cameras_explain_what_to_do(windows_backends):
+    with pytest.raises(windows_backends.CameraUnavailable, match="busy"):
+        windows_backends.open_camera(FakeCv2({(0, 1400): (True, False)}), 0)
+    with pytest.raises(windows_backends.CameraUnavailable, match="Privacy & security"):
+        windows_backends.open_camera(FakeCv2({}), 0)
+
+
+def test_camera_failure_retries_automatically(app, tmp_path):
+    from cyclop_windows.app import Cyclop
+    model = Model(tmp_path)
+    cyclop = Cyclop(model, start_services=False)
+    try:
+        cyclop.notify = lambda *args, **kwargs: None
+        model.configure("camera_follow", True)
+        cyclop.camera_failed("The camera is busy: another app is using it.")
+        assert cyclop.camera_retry.isActive()
+        assert "busy" in cyclop.panel.panes["settings"].camera_status.text()
+        model.configure("camera_follow", False)
+        assert not cyclop.camera_retry.isActive() and not cyclop.camera_error
+    finally:
+        cyclop.shutdown()
+        cyclop.panel.close()
+        cyclop.mascot.close()
