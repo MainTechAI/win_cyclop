@@ -8,3 +8,4 @@ dist/
 *.spec
 *.log
 .local-data/
+cyclop_windows/assets/*.onnx

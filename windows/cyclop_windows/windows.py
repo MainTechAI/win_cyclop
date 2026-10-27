@@ -283,3 +283,19 @@ class PerformanceCounters:
         if self.query is not None:
             self.pdh.PdhCloseQuery(self.query)
             self.query = None
+
+
+class _LastInputInfo(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
+
+
+def last_input_tick() -> int:
+    """Tick count of the last keyboard or mouse input anywhere (0 if unknown)."""
+    if sys.platform != "win32":
+        return 0
+    info = _LastInputInfo(ctypes.sizeof(_LastInputInfo), 0)
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetLastInputInfo.argtypes = [ctypes.POINTER(_LastInputInfo)]
+    if user32.GetLastInputInfo(ctypes.byref(info)):
+        return int(info.dwTime)
+    return 0

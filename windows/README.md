@@ -30,9 +30,11 @@ Download **[CyclopWindows.exe](https://github.com/MainTechAI/win_cyclop/releases
 
 ## Cyclop mascot
 
-A 3D floating eye orb sits beside the notch (red by default; other eye colours in Settings). It is ray-traced per pixel: a glossy sphere with key and fill lights, studio reflections, a rim light, a glowing fibred iris that looks around, follows the pointer and blinks, and eyelids that close over it. After an idle period (8 s by default) it slides up so only a sliver stays visible; hover the sliver to bring it back.
+A 3D floating eye orb sits beside the notch (red by default; other eye colours in Settings). It is ray-traced per pixel: a glossy sphere with key and fill lights, studio reflections, a rim light, a glowing fibred iris that looks around, follows the pointer and blinks, and eyelids that close over it. After an idle period (8 s by default) it slides up completely above the screen edge, leaving the stats pill (with a red eye dot) or, with stats off, a slim glowing red handle at the top edge; hover it to bring Cyclop back.
 
-- It is alive: it breathes and floats, tilts its head, hops, looks around while **scanning with red sonar** (pulses and a radar sweep), perks up when the pointer comes near, bounces when clicked, shakes on errors and dozes off when left alone for a while.
+- It **follows the mouse pointer** anywhere on the screen and **reads along** (left to right) while you type.
+- It is alive: it wakes up with a slide-in and a double blink, breathes and floats, tilts its head, hops, leans in to inspect where the pointer stops, looks around while **scanning with red sonar** (pulses and a radar sweep), **hunts** spots on the screen, **startles** when the pointer darts at it, gets **dizzy** if you circle the pointer around it, gets **annoyed** at rapid clicks, bounces when clicked, shakes on errors, and **yawns and falls asleep** (with floating z's) when left alone.
+- **Look where I look** (opt-in, off by default): with the webcam, Cyclop finds your face and looks at you, and learns where on the screen you are looking. Calibration is automatic: whenever you move the mouse you are looking at the pointer, so each movement trains the estimate (a small model that keeps adapting). Expect roughly region-level accuracy that improves with use; until it is calibrated, Cyclop looks at your face. The camera runs only while the option is on and Cyclop is not tucked away; frames are processed on this PC and never saved or sent. **Reset calibration** is in Settings. If another app is using the camera, Cyclop says so and stays mouse-only.
 - **Text capture** shows a red sonar sweep over the selected area while Cyclop stares at it and reads.
 - **Click** Cyclop to give a voice command (when voice commands are on) or to open/close the panel. **Right-click** for the tray menu.
 - **System stats** (on by default; turn off in Settings): CPU, RAM, GPU and temperature appear under Cyclop as coloured numbers and stay visible when it tucks away — green, yellow at 50/60, red at 80. Hover for details. GPU uses the Windows 3D-engine counter (any GPU) with NVIDIA NVML as fallback; temperature uses ACPI thermal zones or the NVIDIA GPU sensor. Some PCs expose no temperature to normal apps; then it shows `Temp –`.
@@ -103,6 +105,7 @@ Data directory: `%LOCALAPPDATA%\CyclopWindows`.
 - Text capture keeps the frozen screenshot in memory only; recognition is local.
 - Define/translate read your selection with a synthetic Ctrl+C and then restore the previous clipboard; that copy is not added to clipboard history.
 - Keep awake blocks sleep and screen-off only while it is on and Cyclop is running.
+- "Look where I look" is off by default. When on, the webcam is opened only while Cyclop is visible (not tucked away) and released otherwise; the camera light shows when it is in use. Frames are analysed in memory with the bundled YuNet face detector; no image, face data or calibration is written to disk or sent anywhere, and calibration is discarded when Cyclop exits. Source installs download the 232 KB detector once from the OpenCV model zoo and verify its SHA-256.
 - Translation installation and Python dependency installation use their respective package servers.
 - There is no analytics, credential collection, automatic calendar upload, or arbitrary command execution from copied text or speech.
 

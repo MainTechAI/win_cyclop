@@ -16,11 +16,13 @@ from PySide6.QtWidgets import (
 )
 
 from datetime import datetime
+import time
 from urllib.parse import quote_plus
 
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 
+from .camera import FaceTracker, GazeCalibrator, download_model, find_model
 from .capture import RegionSelector, ScanOverlay, prepare_for_ocr
 from .popups import LookupPopup, SelectionGrabber
 from .services import ocr_png
@@ -495,6 +497,14 @@ class Cyclop(QObject):
         self.panel.panes["settings"].hotkey_changed.connect(self.register_hotkeys)
         self.stats = StatsWorker(self)
         self.stats.sample.connect(self.mascot.set_stats)
+        # Opt-in webcam gaze, calibrated continuously from mouse movement.
+        self.calibrator = GazeCalibrator()
+        self.tracker = None
+        self.camera_error = ""
+        self.camera_fetching = False
+        self.observations = 0
+        self.mascot.tucked_changed.connect(lambda tucked: self.update_camera())
+        self.panel.panes["settings"].calibration_reset.connect(self.reset_calibration)
         self.hotkeys = HotkeyFilter()
         self.hotkey_signature = None
         self.build_tray()
@@ -574,6 +584,7 @@ class Cyclop(QObject):
                 self.stats.start()
         else:
             self.stats.enabled.clear()
+        self.update_camera()
         if not config["voice_enabled"] and self.voice_active:
             self.voice_active = False
             self.recorder.cancel()
@@ -608,6 +619,97 @@ class Cyclop(QObject):
 
     def hotkey_toggle(self):
         self.panel.set_expanded(not self.panel.expanded, focus=True, sticky=True)
+
+    # ------------------------------------------------------------ webcam gaze
+    def camera_wanted(self):
+        config = self.model.config
+        return bool(self.start_services and config["camera_follow"] and config["mascot_enabled"]
+                    and not self.mascot.tucked)
+
+    def update_camera(self):
+        """Run the camera only while it is wanted and Cyclop is visible; release it otherwise."""
+        if not self.camera_wanted():
+            if not self.model.config["camera_follow"]:
+                self.camera_error = ""
+            self.stop_camera()
+            return
+        if self.tracker is not None and self.tracker.camera_index != self.model.config["camera_index"]:
+            self.stop_camera()  # a different camera was chosen
+            self.camera_error = ""
+        if self.tracker is not None or self.camera_fetching or self.camera_error:
+            return
+        path = find_model(self.model.store.directory)
+        if path is None:
+            self.camera_fetching = True
+            self.set_camera_status("Downloading the face detector (232 KB, verified)…")
+
+            def fetched(result):
+                self.camera_fetching = False
+                self.update_camera()
+
+            def failed(error):
+                self.camera_fetching = False
+                self.camera_failed(f"Could not get the face detector: {error}")
+            self.model.run_job(lambda: download_model(self.model.store.directory / "models"), fetched, failed)
+            return
+        self.tracker = FaceTracker(path, self.model.config["camera_index"], self)
+        self.tracker.observation.connect(self.camera_observation)
+        self.tracker.failed.connect(self.camera_failed)
+        self.tracker.start()
+        self.set_camera_status(self.calibration_text())
+
+    def stop_camera(self):
+        if self.tracker is not None:
+            tracker, self.tracker = self.tracker, None
+            tracker.stop()
+            tracker.wait(3000)
+            self.mascot.set_face(None)
+            self.mascot.set_user_gaze(None)
+
+    def camera_failed(self, error):
+        self.camera_error = error
+        self.stop_camera()
+        self.set_camera_status(error + " Turn the option off and on to retry.")
+        self.notify(error, 5)
+
+    def camera_observation(self, observation):
+        if observation is None:
+            self.mascot.set_face(None)
+            self.mascot.set_user_gaze(None)
+            return
+        features = observation["features"]
+        self.mascot.set_face(observation["face"])
+        desktop = QApplication.primaryScreen().virtualGeometry()
+        now = time.monotonic()
+        # You look at the pointer while moving it: that is a calibration sample.
+        if now - self.mascot.last_pointer_move < 0.25 and 50 < self.mascot.pointer_speed < 2500:
+            pointer = QCursor.pos()
+            self.calibrator.add(features, ((pointer.x() - desktop.x()) / max(1, desktop.width()),
+                                           (pointer.y() - desktop.y()) / max(1, desktop.height())))
+        estimate = self.calibrator.predict(features)
+        if estimate is None:
+            self.mascot.set_user_gaze(None)
+        else:
+            self.mascot.set_user_gaze(QPoint(int(desktop.x() + estimate[0] * desktop.width()),
+                                             int(desktop.y() + estimate[1] * desktop.height())))
+        self.observations += 1
+        if self.observations % 20 == 0:
+            self.set_camera_status(self.calibration_text())
+
+    def calibration_text(self):
+        calibrator = self.calibrator
+        if calibrator.calibrated:
+            return f"Watching where you look · calibrated (typical error {calibrator.error * 100:.0f}% of the screen). Keeps improving as you use the mouse."
+        return f"Learning where you look: {int(calibrator.progress * 100)}% · just use the mouse normally; until then Cyclop looks at you."
+
+    def set_camera_status(self, text):
+        self.panel.panes["settings"].camera_status.setText(text)
+
+    def reset_calibration(self):
+        self.calibrator.reset()
+        self.camera_error = ""
+        self.set_camera_status(self.calibration_text())
+        self.update_camera()
 
     # ------------------------------------------------------------ keep awake
     def set_awake(self, value):
@@ -802,6 +904,7 @@ class Cyclop(QObject):
         self.hotkeys.close()
         if self.awake:
             keep_awake(False)
+        self.stop_camera()
         self.mascot.shutdown()
         self.stats.stop()
         self.stats.wait(5000)
@@ -866,6 +969,7 @@ def main():
                     "speech_available": Transcriber.available(),
                     "volume_available": cyclop.volume.available,
                     "stats": {key: value for key, value in sample_once().items() if key != "details"},
+                    "face_model_bundled": find_model() is not None,
                 }
                 (directory / "startup-check.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
                 picture.save(str(directory / "startup-panel.png"))

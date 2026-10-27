@@ -17,5 +17,6 @@ def test_startup_report_and_clean_exit(tmp_path):
     assert report["pane_count"] == 12
     assert report["mascot_rendered"] is True
     assert report["stats"]["cpu"] is not None and report["stats"]["ram"] is not None
+    assert "face_model_bundled" in report
     assert (tmp_path / "startup-panel.png").stat().st_size > 0
     assert not (tmp_path / "instance.lock").exists()

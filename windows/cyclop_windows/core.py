@@ -39,6 +39,8 @@ DEFAULTS = {
     "mascot_autohide_seconds": 8,
     "mascot_follow_cursor": True,
     "mascot_iris": "Red",
+    "camera_follow": False,
+    "camera_index": 0,
     # System stats under the mascot
     "stats_enabled": True,
     "stats_items": ["cpu", "ram", "gpu", "temp"],
@@ -73,6 +75,7 @@ def normalise_config(config: dict) -> dict:
         elif isinstance(value, type(DEFAULTS[key])):
             result[key] = value
     result["mascot_autohide_seconds"] = min(120, max(2, result["mascot_autohide_seconds"]))
+    result["camera_index"] = min(9, max(0, result["camera_index"]))
     result["stats_items"] = [item for item in result["stats_items"] if item in STAT_KEYS]
     hotkeys = dict(DEFAULTS["hotkeys"])
     hotkeys.update({k: v for k, v in result["hotkeys"].items() if k in HOTKEYS and isinstance(v, str)})
