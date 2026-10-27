@@ -168,20 +168,29 @@ class MediaWorker(QThread):
 
 
 # ---------------------------------------------------------------- text recognition
-def _winrt_run(coroutine_factory):
-    """Run WinRT async work on this worker thread inside a multithreaded apartment."""
-    from winrt.runtime import init_apartment, uninit_apartment, ApartmentType
-    initialised = False
-    try:
+def _winrt_run(coroutine_factory, timeout=30):
+    """Run WinRT async work on a fresh thread inside a multithreaded apartment.
+
+    Awaiting WinRT operations from a single-threaded apartment (such as the Qt
+    GUI thread) can deadlock, so callers on any thread are routed here.
+    """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+
+    def work():
+        from winrt.runtime import init_apartment, uninit_apartment, ApartmentType
         init_apartment(ApartmentType.MULTI_THREADED)
-        initialised = True
-    except Exception:
-        pass  # Apartment already set up for this pool thread.
-    try:
-        return asyncio.run(coroutine_factory())
-    finally:
-        if initialised:
+        try:
+            return asyncio.run(asyncio.wait_for(coroutine_factory(), timeout))
+        finally:
             uninit_apartment()
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="winrt")
+    try:
+        return executor.submit(work).result(timeout=timeout + 5)
+    except (FutureTimeout, asyncio.TimeoutError) as exc:
+        raise RuntimeError("Windows text recognition timed out") from exc
+    finally:
+        executor.shutdown(wait=False)
 
 
 def ocr_png(png: bytes, language: str = "") -> str:
@@ -221,8 +230,18 @@ def ocr_png(png: bytes, language: str = "") -> str:
 def ocr_languages() -> list[str]:
     if sys.platform != "win32":
         return []
-    from winrt.windows.media.ocr import OcrEngine
-    return [language.language_tag for language in OcrEngine.available_recognizer_languages]
+    from concurrent.futures import ThreadPoolExecutor
+
+    def work():
+        from winrt.runtime import init_apartment, uninit_apartment, ApartmentType
+        from winrt.windows.media.ocr import OcrEngine
+        init_apartment(ApartmentType.MULTI_THREADED)
+        try:
+            return [language.language_tag for language in OcrEngine.available_recognizer_languages]
+        finally:
+            uninit_apartment()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(work).result(timeout=15)
 
 
 # ---------------------------------------------------------------- dictionary
