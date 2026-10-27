@@ -485,7 +485,8 @@ class MascotWindow(QWidget):
         elif avoid is not None:
             pill_left = min(pill_left, avoid - pill)
         pill_left = max(bounds.left() + 2, min(pill_left, bounds.right() - pill - 2))
-        return eye, pill_left, pill, (avoid, right_side)
+        panel_open = anchor.width() > 300  # the anchor is the panel's current geometry
+        return eye, pill_left, pill, (avoid if panel_open else None, right_side)
 
     def reposition(self):
         bounds = self.screen_bounds()

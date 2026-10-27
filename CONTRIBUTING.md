@@ -1,94 +1,29 @@
-# Как помогать проекту
+# Contributing
 
-Спасибо, что открыл этот файл до того, как написал код, — половина просьб ниже
-существует ровно затем, чтобы твоя работа не повисла в очереди.
+Thanks for helping with Cyclop for Windows 11. The app lives in [`windows/`](windows/); see [windows/README.md](windows/README.md#run-from-source-developers) to run it from source.
 
-## Философия проекта
+## Before you write code
 
-Cyclop — панель, куда заглядывают на секунду между делом. Из этого следуют три
-правила, и они важнее любого кода.
+- **One pull request, one change.** For a large feature, open an issue first so we can agree on the approach before you build it.
+- **Branch from a fresh `main`**, not from your previous branch.
+- **Privacy is a feature.** Anything that adds a network request, camera, microphone or screen access must be opt-in, explained in the README's "Data and privacy" section, and switchable off in Settings.
+- **Every feature can be turned off.** New tabs, shortcuts and background work need a Settings toggle, and hidden or disabled features must stop their background work.
 
-**Разрешений нет.** «Ни одного разрешения, пока не откроешь календарь» — это то
-немногое, что проект обещает вслух. Фича, которая стоит «Автоматизации» или
-«Универсального доступа», не мержится, даже если работает; сначала ищется путь
-без разрешения. Так решился #23: тот же результат нашёлся через per-client
-MediaRemote вместо AppleScript.
+## Check before you open a pull request
 
-**Сеть не трогаем.** SECURITY.md обещает, что исходящих соединений нет, кроме
-явно перечисленных. Любой новый сетевой запрос — отдельное решение владельца и
-отдельная правка SECURITY.md, а не деталь реализации.
-
-**Рельс — для частого.** Вкладка живёт на рельсе, только если в неё заглядывают
-регулярно. Редкий режим — телесуфлёр, конвертер, блокировка клавиатуры — не
-запрещён, но должен отключаться в настройках, чтобы не занимать место у тех,
-кому он не нужен.
-
-**Фон живёт, только пока на него смотрят.** Выключенная вкладка не просто
-пропадает с рельса — она останавливает свою фоновую работу: опрос буфера,
-наблюдатель календаря, процесс Now Playing.
-
-## Один PR — одно дело
-
-Самая частая причина, по которой хорошая работа виснет. Три самых больших PR в
-истории проекта — те же три, где пришлось просить «разбей на части», и просьба
-каждый раз приходила уже после того, как всё было написано.
-
-Если фича большая — **заведи issue и обсуди до того, как писать код**. Пять
-минут переписки экономят неделю работы, которую иначе придётся переделывать
-или выбрасывать.
-
-## Ветку — от `main`
-
-Не от своей предыдущей ветки. Иначе правки складываются друг в друга: три PR,
-и один и тот же диф приходится разбирать трижды, а смержить их можно только в
-одном порядке.
-
-## Что проверить у себя до отправки
-
-```sh
-./Scripts/bundle.sh release   # весь путь до .app, а не только swift build
-./Scripts/test-helper.sh      # Now Playing хелпер отвечает валидным JSON
-./Scripts/test.sh             # тесты на сторы
+```powershell
+cd windows
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,speech]"
+.\.venv\Scripts\python.exe scripts\fetch-face-model.py
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Тесты есть, но только на сторы: разбор файла, дедупликация, порядок элементов.
-Панель не тестируется и не будет — вырез, наведение, анимации и раскладка
-рельса проверяются глазами, и тест на них врал бы чаще, чем ловил. Граница
-проходит там, где кончается чистая логика и начинается экран.
+Every pull request is built and tested on Windows by **Actions → Windows build**: unit tests, native desktop interaction tests, both executables and their startup self-check. Download the `CyclopWindows-win-x64` artifact from that run to try the change.
 
-`./Scripts/test.sh` — это `swift test` с одной поправкой: если Xcode не стоит,
-а есть только Command Line Tools, он сам подставляет пути к `Testing.framework`
-(тот лежит в CLT, но не подставлен в пути поиска — голый `swift test` в этом
-случае падает с `no such module 'Testing'`, и это не про отсутствие Xcode).
+## Releases
 
-Если добавляешь текст на экране — заведи ключ в **обоих** файлах
-`Resources/*.lproj/Localizable.strings`. Строка без ключа сборку не ломает: она
-просто покажется по-английски тому, у кого выбран русский. CI это ловит
-последним шагом в `build.yml` — там же лежит скрипт проверки, если хочется
-прогнать у себя.
+Bump `version` in `windows/pyproject.toml` and `windows/cyclop_windows/__init__.py`, and add `windows/releases/<version>.md`. Merging that note into `main` runs **Windows release**, which publishes the `.exe`, the zip and checksums only after the full Windows build passes.
 
-## Про CI на твоём PR
+## If a pull request goes quiet
 
-Сборка на PR из форка запускается сама, кроме одного случая: если это твой
-первый PR на GitHub вообще, GitHub ждёт ручного одобрения владельца. После
-первого смерженного PR очередь тебя больше не касается. Если галочек нет
-дольше пары дней — напиши в тред.
-
-## Если PR замолчал
-
-Ревью здесь неспешное — проект личный, дежурства по нему нет, и «отвечу через
-несколько дней» это нормально. Но когда просьба доработать остаётся без ответа
-**неделю**, PR закрывается. Это не отказ и не оценка работы: закрытый PR тут
-значит ровно одно — он не висит в очереди. Подать заново можно в любой момент,
-тем же кодом, и разговор продолжится с того же места.
-
-Считает это бот, а не человек: просьба доработать помечается `waiting-for-author`,
-на пятый день тишины приходит напоминание, на седьмой PR закрывается. Любой
-комментарий или коммит сбрасывает счёт. Метка `blocked` значит, что ждут не
-тебя, — такие PR бот не трогает.
-
-## Язык
-
-Обсуждения идут на русском и английском — пиши на том, на котором тебе удобнее.
-Заголовок коммита — о том, **что стало**, а не о том, что сделано:
-«Обложка не своей формы перестала накрывать рельс», а не «Fix artwork bug».
+When a requested change gets no reply for a week, the pull request is closed automatically (label `waiting-for-author`; a reminder comes on day five, and any comment or commit resets the count). It is not a rejection: reopen it with the same code at any time.

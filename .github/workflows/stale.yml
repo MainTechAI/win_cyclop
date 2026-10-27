@@ -1,12 +1,9 @@
 name: stale
 
-# Правило из CONTRIBUTING.md, исполняемое машиной, а не памятью мейнтейнера:
-# просьба доработать без ответа неделю — PR закрывается. Это не отказ,
-# закрытый PR здесь значит только, что он не висит в очереди.
-#
-# Смотрит только на PR с меткой waiting-for-author: метку ставит человек,
-# когда действительно просит правку, так что бот никогда не закроет то, на
-# что ещё никто не ответил. Метка blocked освобождает: там ждут не автора.
+# The rule from CONTRIBUTING.md, run by a bot rather than from memory: a pull
+# request labelled waiting-for-author with no reply for a week is closed. It only
+# looks at PRs a person has labelled, so nothing unanswered is ever closed; the
+# blocked label exempts PRs that are waiting on someone else.
 on:
   schedule:
     - cron: '17 9 * * *'
@@ -22,7 +19,7 @@ jobs:
     steps:
       - uses: actions/stale@v11
         with:
-          # Issue не трогаем вовсе: правило про PR.
+          # Issues are never touched: the rule is about pull requests.
           days-before-issue-stale: -1
           days-before-issue-close: -1
           days-before-pr-stale: 5
@@ -32,12 +29,11 @@ jobs:
           stale-pr-label: stale
           remove-pr-stale-when-updated: true
           stale-pr-message: >
-            Пять дней без ответа на просьбу доработать. По правилу из
-            CONTRIBUTING.md через два дня PR закроется сам, если не будет
-            движения — любой комментарий или коммит это отменяет. Это не отказ:
-            закрытый PR здесь значит только, что он не висит в очереди, и
-            открыть его заново можно в любой момент тем же кодом.
+            Five days without a reply to the requested changes. Following
+            CONTRIBUTING.md, this pull request will close in two days unless
+            something happens; any comment or commit cancels that. It is not a
+            rejection, and it can be reopened with the same code at any time.
           close-pr-message: >
-            Неделя без ответа, закрываю по правилу из CONTRIBUTING.md. Работа
-            не потеряна: подать заново можно в любой момент тем же кодом, и
-            разговор продолжится с того же места.
+            A week without a reply, so closing as described in CONTRIBUTING.md.
+            Nothing is lost: reopen or resubmit the same code at any time and
+            the conversation continues from here.

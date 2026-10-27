@@ -1,17 +1,12 @@
-<!-- Заголовок — о том, что стало, а не что сделано:
-     «Обложка не своей формы перестала накрывать рельс», а не «Fix artwork bug». -->
+<!-- Title: what changed for the user, e.g. "Clicking the eye opens the panel" rather than "Fix bug". -->
 
-## Что было и что стало
+## What changed and why
 
-<!-- Симптом, причина, правка. Если закрывает issue — «Closes #N». -->
+<!-- Symptom, cause, fix. "Closes #N" if it fixes an issue. -->
 
-## Проверено
+## Checked
 
-- [ ] `./Scripts/bundle.sh release` собирается
-- [ ] `./Scripts/test-helper.sh` отвечает валидным JSON
-- [ ] Новый текст на экране заведён в **обоих** `Resources/*.lproj/Localizable.strings`
-- [ ] Ветка взята от свежего `main`, а не от предыдущей ветки
-- [ ] PR про одно дело; большая фича обсуждена в issue до кода
-
-<!-- Новое разрешение macOS или новое исходящее соединение — отдельное решение
-     владельца, см. CONTRIBUTING.md. Если PR их добавляет, напиши об этом первым абзацем. -->
+- [ ] `python -m pytest -q` passes in `windows/`
+- [ ] The **Windows build** check on this PR is green (it also builds and smoke-tests the `.exe`)
+- [ ] New features have a Settings toggle; any new network, camera or microphone use is opt-in and documented
+- [ ] Branched from a fresh `main`; this PR does one thing

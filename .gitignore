@@ -1,15 +1,14 @@
-.build/
+# Python and build output (see also windows/.gitignore)
+__pycache__/
+*.py[cod]
+.venv/
 build/
-.DS_Store
-*.xcodeproj
-*.xcworkspace
-.swiftpm/
+dist/
 
-# Чтобы секрет не уехал в публичный репозиторий по случайности
+# Keep secrets out of the public repository
 .env
 .env.*
 *.pem
 *.p12
+*.pfx
 *.key
-*.mobileprovision
-*.certSigningRequest
