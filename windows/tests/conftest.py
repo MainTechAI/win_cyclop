@@ -32,3 +32,9 @@ def pytest_runtest_logreport(report):
     if report.failed:
         HANG_LOG.write(f"\n[FAILED] {report.nodeid}\n{report.longreprtext[-1800:]}\n")
         HANG_LOG.flush()
+    # Record Windows-only outcomes so CI can show whether they ran or were skipped.
+    if "test_windows_" in report.nodeid and (report.when == "call" or report.skipped):
+        reason = str(report.longrepr[2]) if report.skipped and isinstance(report.longrepr, tuple) else ""
+        HANG_LOG.write(f"[OUTCOME] {report.nodeid.split('::')[-1]} {report.outcome} {reason}\n")
+        HANG_LOG.flush()
+

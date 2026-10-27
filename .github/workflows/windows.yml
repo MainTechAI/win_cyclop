@@ -38,6 +38,11 @@ jobs:
         run: |
           python -m pytest -v -p no:faulthandler 2>&1 | Tee-Object -FilePath pytest.log
           $code = $LASTEXITCODE
+          if (Test-Path hang.log) {
+            Get-Content hang.log | Where-Object { $_ -match '^\[OUTCOME\]' } | ForEach-Object {
+              Write-Output ("::notice title=windows test::" + (($_ -replace '[^\x20-\x7E]', '?').Replace('%', '%25')))
+            }
+          }
           if ($code -ne 0) {
             # Surface the end of the output as check annotations (readable without log access).
             if (Test-Path hang.log) {
@@ -60,6 +65,11 @@ jobs:
         run: |
           python -m pytest tests/test_interactions.py "tests/test_features.py::test_windows_ocr_reads_rendered_text" -v -p no:faulthandler
           $code = $LASTEXITCODE
+          if (Test-Path hang-native.log) {
+            Get-Content hang-native.log | Where-Object { $_ -match '^\[OUTCOME\]' } | ForEach-Object {
+              Write-Output ("::notice title=windows test::" + (($_ -replace '[^\x20-\x7E]', '?').Replace('%', '%25')))
+            }
+          }
           if ($code -ne 0 -and (Test-Path hang-native.log)) {
             $picked = Get-Content hang-native.log | Where-Object { $_ -match '^(\[FAILED\]|E  )' } | Select-Object -First 9
             foreach ($line in $picked) {
