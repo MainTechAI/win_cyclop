@@ -423,6 +423,7 @@ class QuickSettings(QFrame):
 class SettingsPane(Pane):
     """Every feature can be switched on or off here; changes apply immediately."""
     hotkey_changed = Signal()
+    calibration_reset = Signal()
 
     def __init__(self, model, tab_names):
         super().__init__(model)
@@ -462,6 +463,15 @@ class SettingsPane(Pane):
         iris.setCurrentText(model.config["mascot_iris"])
         iris.currentTextChanged.connect(lambda value: model.configure("mascot_iris", value))
         self.content.addLayout(row(label("Eye colour", True), iris, None))
+        self.check("Look where I look, using the webcam (opt-in; video stays on this PC)", "camera_follow")
+        camera = QSpinBox()
+        camera.setRange(0, 9)
+        camera.setPrefix("Camera ")
+        camera.setValue(int(model.config["camera_index"]))
+        camera.valueChanged.connect(lambda value: model.configure("camera_index", value))
+        self.camera_status = label("Cyclop learns where you look from your mouse movements: move the mouse around normally for a minute.", True)
+        self.content.addLayout(row(camera, button("Reset calibration", self.calibration_reset.emit), None))
+        self.content.addWidget(self.camera_status)
 
         self.section("SYSTEM STATS UNDER CYCLOP")
         self.check("Show live system stats", "stats_enabled")

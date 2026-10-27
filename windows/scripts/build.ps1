@@ -7,11 +7,13 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 $python = Join-Path $PWD ".venv\Scripts\python.exe"
 & $python -m pip install -e ".[dev,speech]"
 if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed." }
+& $python scripts/fetch-face-model.py
+if ($LASTEXITCODE -ne 0) { throw "Face model download failed." }
 & $python -m pytest -q
 if ($LASTEXITCODE -ne 0) { throw "Tests failed." }
 & $python scripts/check-winrt.py
 if ($LASTEXITCODE -ne 0) { throw "Windows Runtime check failed." }
-& $python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --icon cyclop_windows/assets/cyclop.ico --collect-submodules winrt --collect-data faster_whisper --collect-binaries ctranslate2 --copy-metadata cyclop-windows scripts/launch.py
+& $python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --icon cyclop_windows/assets/cyclop.ico --add-data "cyclop_windows/assets:cyclop_windows/assets" --collect-submodules winrt --collect-data faster_whisper --collect-binaries ctranslate2 --copy-metadata cyclop-windows scripts/launch.py
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 Copy-Item ..\LICENSE dist\CyclopWindows\LICENSE.txt
 Copy-Item THIRD_PARTY_NOTICES.md dist\CyclopWindows\THIRD_PARTY_NOTICES.md
