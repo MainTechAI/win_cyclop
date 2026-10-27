@@ -21,11 +21,11 @@ from urllib.parse import quote_plus
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 
-from .capture import RegionSelector, prepare_for_ocr
+from .capture import RegionSelector, ScanOverlay, prepare_for_ocr
 from .popups import LookupPopup, SelectionGrabber
 from .services import ocr_png
 from .speech import Transcriber
-from .system import StatsWorker
+from .system import StatsWorker, sample_once
 from .windows import keep_awake, lock_workstation, open_target, press_key
 
 from .core import HOTKEYS, IRIS_COLORS, cycle, data_directory, parse_command
@@ -676,6 +676,8 @@ class Cyclop(QObject):
         """Run an allow-listed action through the Windows API and say what happened."""
         action = intent.get("action")
         try:
+            if action != "none":
+                self.mascot.happy()
             if action == "open":
                 open_target(intent["target"])
                 self.notify(f"Opening {intent['name']}")
@@ -732,7 +734,7 @@ class Cyclop(QObject):
             self.selector = RegionSelector()
             self.selector.selected.connect(self.recognise)
             self.selector.cancelled.connect(lambda: self.finish_selection(mascot_visible))
-            self.selector.selected.connect(lambda image: self.finish_selection(mascot_visible))
+            self.selector.selected.connect(lambda image, area: self.finish_selection(mascot_visible))
             self.selector.show()
         # Let the panel collapse and the mascot disappear before the freeze-frame.
         QTimer.singleShot(150, show_selector)
@@ -742,23 +744,35 @@ class Cyclop(QObject):
         if mascot_visible:
             self.mascot.apply_config()
 
-    def recognise(self, image):
+    def recognise(self, image, area=None):
         pane = self.panel.panes["ocr"]
         pane.busy()
-        self.mascot.set_state("thinking")
+        # Red sonar sweeps the selected area while Cyclop stares at it and reads.
+        overlay = None
+        if area is not None and not area.isEmpty():
+            overlay = ScanOverlay(area)
+            overlay.show()
+            self.mascot.look_at(area.center())
+        self.mascot.set_state("scanning")
         png = prepare_for_ocr(image)
 
         def done(text):
+            if overlay is not None:
+                overlay.finish(bool(text))
             self.mascot.set_state("idle")
             pane.show_result(image, text)
             if text:
                 self.model.copy(text)
+                self.mascot.happy()
                 self.notify(f"Copied {len(text)} characters")
             else:
                 self.notify("No text found in that area")
 
         def failed(error):
-            self.mascot.set_state("idle")
+            if overlay is not None:
+                overlay.finish(False)
+            self.mascot.set_state("error")
+            QTimer.singleShot(1200, lambda: self.mascot.set_state("idle"))
             pane.show_error(error)
             self.notify(error, 6)
         self.model.run_job(lambda: ocr_png(png), done, failed)
@@ -851,6 +865,7 @@ def main():
                     "mascot_rendered": not cyclop.mascot.frame.isNull(),
                     "speech_available": Transcriber.available(),
                     "volume_available": cyclop.volume.available,
+                    "stats": {key: value for key, value in sample_once().items() if key != "details"},
                 }
                 (directory / "startup-check.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
                 picture.save(str(directory / "startup-panel.png"))

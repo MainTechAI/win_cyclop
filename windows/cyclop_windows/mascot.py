@@ -250,22 +250,35 @@ class Spring:
         return self.value
 
 
+SONAR = "#ff3b30"
+
+
 class MascotWindow(QWidget):
-    """Always-on-top orb beside the notch. Slides up out of the way when idle."""
+    """Always-on-top living eye beside the notch.
+
+    Besides looking around and blinking it breathes, floats, tilts its head,
+    hops, perks up when the pointer comes near, dozes off when left alone and
+    scans its surroundings with red sonar pulses and a radar sweep. When idle
+    it slides up out of the way, leaving a sliver (and the stats row) visible.
+    """
     clicked = Signal()
     menu_requested = Signal(QPoint)
 
     ORB = 84
-    PEEK = 9  # pixels left visible while tucked away
+    MARGIN = 34   # room around the orb for sonar rings
+    PEEK = 9      # pixels of the orb left visible while tucked away
+    SLEEP_AFTER = 90.0
 
     def __init__(self, model, start_animation=True):
-        super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
-                         Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
+        # Not WindowDoesNotAcceptFocus: a click must reach and activate Cyclop so the
+        # panel it opens can take the foreground.
+        super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.model = model
-        self.setWindowTitle("Cyclop mascot")
+        self.setWindowTitle("Cyclop")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.anchor = QRect()
         self.state = "idle"
         self.level = 0.0
@@ -279,16 +292,37 @@ class MascotWindow(QWidget):
         self.renderer = None
         self.frame = QImage()
         self.dpr = 1.0
+        now = time.monotonic()
         self.gaze_x, self.gaze_y = Spring(0, 22), Spring(0, 22)
         self.target = (0.0, 0.0)
+        self.look_target = None      # global point to stare at (e.g. a scanned area)
         self.next_saccade = 0.0
-        self.next_blink = time.monotonic() + 2.0
+        self.next_blink = now + 2.0
         self.blink_started = None
         self.spin = 0.0
-        self.last = time.monotonic()
-        self.started = self.last
+        self.last = now
+        self.started = now
         self.last_render = 0.0
         self.last_signature = None
+        # Body language
+        self.hop = Spring(0.0, 9.0)        # vertical offset in px
+        self.squash = Spring(0.0, 11.0)    # >0 squashed, <0 stretched
+        self.tilt = Spring(0.0, 6.0)       # degrees
+        self.hop_target = self.squash_target = self.tilt_target = 0.0
+        self.behaviour, self.behaviour_until = None, 0.0
+        self.next_behaviour = now + random.uniform(3, 6)
+        self.happy_until = 0.0
+        self.shake_until = 0.0
+        self.last_pointer, self.last_pointer_move = QCursor.pos(), now
+        self.near = False
+        # Sonar
+        self.pings: list[float] = []
+        self.next_ping = now + 1.5
+        self.sweep_angle = 0.0
+        self.sweeping_until = 0.0
+        self.press_pos = None
+        self.press_time = 0.0
+        self.last_click = 0.0
         self.hide_timer = QTimer(self)
         self.hide_timer.setSingleShot(True)
         self.hide_timer.timeout.connect(lambda: self.set_tucked(True))
@@ -345,12 +379,20 @@ class MascotWindow(QWidget):
     def footer_height(self):
         return 22 if (self.stats_visible() or self.caption) else 0
 
+    def orb_rect(self) -> QRectF:
+        return QRectF((self.width() - self.ORB) / 2, self.MARGIN, self.ORB, self.ORB)
+
+    def footer_rect(self) -> QRectF:
+        return QRectF(0, self.MARGIN + self.ORB + 6, self.width(), self.footer_height() - 2)
+
     def apply_config(self):
         config = self.model.config
         if not config["mascot_enabled"]:
             self.hide()
             return
-        self.resize(max(self.ORB + 16, self.footer_width()), self.ORB + 10 + self.footer_height())
+        width = max(self.ORB + 2 * self.MARGIN, self.footer_width() + 8)
+        height = max(self.ORB + 2 * self.MARGIN, self.MARGIN + self.ORB + 8 + self.footer_height())
+        self.resize(int(width), int(height))
         self.reposition()
         self.show()
         self.reset_hide_timer()
@@ -366,12 +408,14 @@ class MascotWindow(QWidget):
     def reposition(self):
         bounds = self.screen_bounds()
         anchor = self.anchor if not self.anchor.isNull() else QRect(bounds.center().x() - 96, bounds.y(), 192, 28)
-        x = anchor.right() + 10
-        if x + self.width() > bounds.right():
-            x = anchor.left() - 10 - self.width()
-        travel = self.height() - self.PEEK
-        y = bounds.y() + 2 - int(round(travel * self.offset))
-        self.move(x, y)
+        center_x = anchor.right() + 12 + self.ORB // 2
+        if center_x + self.ORB // 2 > bounds.right():
+            center_x = anchor.left() - 12 - self.ORB // 2
+        x = center_x - self.width() // 2
+        shown_top = bounds.y() + 4            # orb top when visible
+        tucked_top = bounds.y() + self.PEEK - self.ORB  # only a sliver of the orb remains
+        orb_top = shown_top + (tucked_top - shown_top) * self.offset
+        self.move(x, int(round(orb_top - self.MARGIN)))
 
     def _slid(self, value):
         self.offset = float(value)
@@ -380,7 +424,7 @@ class MascotWindow(QWidget):
     def set_tucked(self, tucked):
         if not self.model.config["mascot_autohide"] and tucked:
             return
-        if tucked and (self.state in ("listening", "thinking") or self.underMouse()):
+        if tucked and (self.state in ("listening", "thinking", "scanning") or self.underMouse()):
             self.reset_hide_timer()
             return
         if tucked == self.tucked:
@@ -390,6 +434,8 @@ class MascotWindow(QWidget):
         self.slide.setStartValue(self.offset)
         self.slide.setEndValue(1.0 if tucked else 0.0)
         self.slide.start()
+        if not tucked:
+            self.wake()
 
     def reset_hide_timer(self):
         if self.model.config["mascot_autohide"]:
@@ -401,19 +447,43 @@ class MascotWindow(QWidget):
         self.set_tucked(False)
         self.reset_hide_timer()
 
+    def visible_orb_global(self) -> QRect:
+        return QRect(self.mapToGlobal(self.orb_rect().topLeft().toPoint()), QSize(self.ORB, self.ORB))
+
     def pointer_tick(self):
         if not self.isVisible():
             return
         position = QCursor.pos()
-        zone = self.frameGeometry().adjusted(-8, -4, 8, 8)
+        now = time.monotonic()
+        if position != self.last_pointer:
+            if (position - self.last_pointer).manhattanLength() > 3:
+                self.last_pointer_move = now
+            self.last_pointer = position
+        orb = self.visible_orb_global()
+        zone = orb.adjusted(-10, -6, 10, 10)
         if zone.contains(position):
             self.reveal()
+        center = orb.center()
+        distance = math.hypot(position.x() - center.x(), position.y() - center.y())
+        near = distance < 160
+        if near and not self.near:
+            self.perk_up()
+        self.near = near
 
-    # ------------------------------------------------------------ states
+    # ------------------------------------------------------------ moods & reactions
     def set_state(self, state):
-        self.state = state
-        if state in ("listening", "thinking"):
+        previous, self.state = self.state, state
+        if state in ("listening", "thinking", "scanning"):
             self.reveal()
+            self.wake()
+        if state == "scanning":
+            self.sweeping_until = time.monotonic() + 3600
+            self.ping()
+        elif previous == "scanning":
+            self.sweeping_until = time.monotonic() + 0.4
+            self.look_target = None
+        if state == "error":
+            self.shake_until = time.monotonic() + 0.6
         if state == "idle":
             self.reset_hide_timer()
 
@@ -438,8 +508,54 @@ class MascotWindow(QWidget):
         self.apply_config()
         self.update()
 
+    def look_at(self, point: QPoint | None):
+        self.look_target = QPoint(point) if point is not None else None
+
+    def ping(self):
+        """Send out a red sonar pulse (two rings)."""
+        now = time.monotonic()
+        self.pings = [p for p in self.pings if now - p < 2.0] + [now, now + 0.28]
+
     def happy(self):
-        self.next_blink = time.monotonic()
+        """Delighted bounce: squash, hop, squint and a sonar ping."""
+        now = time.monotonic()
+        self.wake()
+        self.happy_until = now + 0.9
+        self.squash.velocity += 2.6
+        self.hop.velocity -= 70
+        self.ping()
+
+    def perk_up(self):
+        if self.state in ("listening", "thinking", "scanning"):
+            return
+        self.wake()
+        self.hop.velocity -= 28
+        self.next_blink = time.monotonic() + 0.05
+
+    def wake(self):
+        self.last_pointer_move = time.monotonic()
+
+    @property
+    def sleepy(self):
+        return (self.state == "idle" and not self.near and
+                time.monotonic() - self.last_pointer_move > self.SLEEP_AFTER)
+
+    def choose_behaviour(self, now):
+        """Idle life: look around while scanning, tilt the head, hop, or squint."""
+        options = [("look_around", 3.2), ("tilt", 1.8), ("hop", 0.6), ("sonar", 1.6), ("squint", 1.2)]
+        weights = [4, 3, 2, 4, 2]
+        name, duration = random.choices(options, weights)[0]
+        self.behaviour, self.behaviour_until = name, now + duration
+        if name == "tilt":
+            self.tilt_target = random.choice((-1, 1)) * random.uniform(7, 12)
+        elif name == "hop":
+            self.hop.velocity -= 55
+            self.squash.velocity -= 1.6
+        elif name in ("sonar", "look_around"):
+            self.ping()
+            if name == "look_around":
+                self.sweeping_until = now + duration
+        self.next_behaviour = now + duration + random.uniform(3.5, 9.0)
 
     # ------------------------------------------------------------ animation
     def tick(self):
@@ -448,16 +564,40 @@ class MascotWindow(QWidget):
         now = time.monotonic()
         dt = min(0.1, now - self.last)
         self.last = now
-        if self.tucked and self.offset >= 0.999:
-            if self.frame_timer.interval() != 250:
-                self.frame_timer.setInterval(250)
-        elif self.frame_timer.interval() != 33:
-            self.frame_timer.setInterval(33)
-        # Gaze: follow the cursor when it is near, otherwise wander with saccades.
-        if self.state == "thinking":
+        resting = self.tucked and self.offset >= 0.999 and not self.pings
+        wanted = 250 if resting else 33
+        if self.frame_timer.interval() != wanted:
+            self.frame_timer.setInterval(wanted)
+        sleepy = self.sleepy
+        if self.behaviour and now >= self.behaviour_until:
+            self.behaviour = None
+            self.tilt_target = 0.0
+        if not self.behaviour and not sleepy and not self.tucked and self.state == "idle" and now >= self.next_behaviour:
+            self.choose_behaviour(now)
+        # Periodic sonar while awake; continuous pulses while scanning.
+        interval = 1.1 if self.state == "scanning" else (2.2 if self.state == "listening" else random.uniform(7, 12))
+        if now >= self.next_ping and not sleepy and not self.tucked:
+            if self.state in ("scanning", "listening") or random.random() < 0.6:
+                self.ping()
+            self.next_ping = now + interval
+        self.pings = [p for p in self.pings if now - p < 1.6]
+        sweeping = now < self.sweeping_until
+        if sweeping:
+            self.sweep_angle = (self.sweep_angle + dt * (260 if self.state == "scanning" else 150)) % 360
+        # Gaze
+        if self.look_target is not None:
+            self.target = self._target_towards(self.look_target, 1400)
+        elif sweeping:
+            radians = math.radians(self.sweep_angle)
+            self.target = (0.36 * math.cos(radians), 0.28 * math.sin(radians))
+        elif self.state == "thinking":
             self.target = (0.32 * math.cos(now * 2.4), 0.18 + 0.1 * math.sin(now * 2.4))
+        elif sleepy:
+            self.target = (0.0, -0.18)
         elif self.model.config["mascot_follow_cursor"] and self._cursor_target() is not None:
-            self.target = self._cursor_target()
+            cursor = self._cursor_target()
+            jitter = 0.012 * math.sin(now * 23)  # micro-saccades keep it alive
+            self.target = (cursor[0] + jitter, cursor[1] - jitter)
         elif now >= self.next_saccade:
             self.target = (random.uniform(-0.38, 0.38), random.uniform(-0.28, 0.3))
             if random.random() < 0.35:
@@ -465,34 +605,58 @@ class MascotWindow(QWidget):
             self.next_saccade = now + random.uniform(1.1, 3.6)
         gx = self.gaze_x.step(self.target[0], dt)
         gy = self.gaze_y.step(self.target[1], dt)
-        # Blink: quick close/open; occasionally a double blink.
-        openness = 0.42 if self.tucked else (0.78 if self.state == "thinking" else 1.0)
+        # Lids: sleepy droop, thinking squint, happy smile-squint, wide when perked.
+        if self.tucked:
+            openness = 0.42
+        elif sleepy:
+            openness = 0.32 + 0.06 * math.sin(now * 0.8)
+        elif now < self.happy_until:
+            openness = 0.55
+        elif self.state == "thinking" or self.behaviour == "squint":
+            openness = 0.7
+        else:
+            openness = 1.0
         if now >= self.next_blink and self.blink_started is None:
             self.blink_started = now
         if self.blink_started is not None:
-            phase = (now - self.blink_started) / 0.17
+            length = 0.5 if sleepy else 0.17
+            phase = (now - self.blink_started) / length
             if phase >= 1:
                 self.blink_started = None
-                self.next_blink = now + (0.18 if random.random() < 0.15 else random.uniform(2.4, 6.0))
+                gap = random.uniform(4.0, 8.0) if sleepy else (0.18 if random.random() < 0.15 else random.uniform(2.4, 6.0))
+                self.next_blink = now + gap
             else:
                 openness *= abs(math.cos(phase * math.pi)) ** 0.7
-        # Glow breathes; listening pulses with the microphone level.
-        breathe = 0.5 + 0.08 * math.sin((now - self.started) * 1.7)
-        glow = breathe + (0.45 * self.level + 0.15 if self.state == "listening" else 0)
-        pupil = 1.0 + (0.35 * self.level if self.state == "listening" else 0) - (0.2 if self.state == "thinking" else 0)
-        self.spin += dt * (3.5 if self.state == "thinking" else 0.25)
-        # Re-render only when something visible changed; slow breathing needs ~8 fps.
+        # Body: springs settle hops, squash and tilt back to rest.
+        self.hop.step(self.hop_target, dt)
+        self.squash.step(self.squash_target, dt)
+        self.tilt.step(self.tilt_target, dt)
+        # Glow breathes (slower when sleepy); listening pulses with the microphone.
+        rate = 0.8 if sleepy else 1.7
+        breathe = 0.5 + 0.08 * math.sin((now - self.started) * rate)
+        glow = breathe * (0.7 if sleepy else 1.0) + (0.45 * self.level + 0.15 if self.state == "listening" else 0)
+        glow += 0.25 if self.state == "scanning" else 0
+        hippus = 0.03 * math.sin(now * 0.9)  # the pupil never sits perfectly still
+        pupil = 1.0 + hippus + (0.35 * self.level if self.state == "listening" else 0)
+        pupil += 0.15 if self.near else 0
+        pupil -= 0.2 if self.state in ("thinking", "scanning") else 0
+        self.spin += dt * (3.5 if self.state in ("thinking", "scanning") else 0.25)
         signature = (round(gx, 3), round(gy, 3), round(openness, 2), round(pupil, 2), self.iris, self.state)
-        moving = signature != self.last_signature or self.state in ("listening", "thinking")
+        moving = signature != self.last_signature or self.state in ("listening", "thinking", "scanning")
         if moving or now - self.last_render > 0.12 or self.frame.isNull():
             self.last_signature = signature
             self.last_render = now
             self.render_frame(gx, gy, openness, glow, pupil)
         self.update()
 
+    def _target_towards(self, point, reach):
+        center = self.mapToGlobal(self.orb_rect().center().toPoint())
+        dx, dy = point.x() - center.x(), point.y() - center.y()
+        return (max(-0.42, min(0.42, dx / reach)), max(-0.32, min(0.36, -dy / (reach * 0.75))))
+
     def _cursor_target(self):
         position = QCursor.pos()
-        center = self.mapToGlobal(QPoint(self.width() // 2, 5 + self.ORB // 2))
+        center = self.mapToGlobal(self.orb_rect().center().toPoint())
         dx, dy = position.x() - center.x(), position.y() - center.y()
         if dx * dx + dy * dy > 900 ** 2:
             return None
@@ -504,24 +668,68 @@ class MascotWindow(QWidget):
         if self.renderer is None or self.renderer.size != size:
             self.renderer = EyeRenderer(size)
         self.dpr = dpr
-        self.frame = self.renderer.render((gx, gy), openness, self.iris, glow, pupil, self.spin, seam=0.4 if self.state == "listening" else 0.0)
+        self.frame = self.renderer.render((gx, gy), openness, self.iris, glow, pupil, self.spin,
+                                          seam=0.4 if self.state in ("listening", "scanning") else 0.0)
         self.frame.setDevicePixelRatio(dpr)
 
     # ------------------------------------------------------------ painting & input
+    def body_offset(self, now):
+        float_x = 1.6 * math.sin((now - self.started) * 0.7)
+        bob = (0.8 if self.sleepy else 1.8) * math.sin((now - self.started) * (0.9 if self.sleepy else 1.6))
+        shake = 4 * math.sin(now * 55) * max(0.0, (self.shake_until - now) / 0.6) if now < self.shake_until else 0.0
+        return float_x + shake, bob + self.hop.value
+
     def paintEvent(self, event):
+        now = time.monotonic()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        bob = 1.5 * math.sin((time.monotonic() - self.started) * 1.6)
-        orb_x = (self.width() - self.ORB) / 2
+        orb = self.orb_rect()
+        dx, dy = self.body_offset(now)
+        center = orb.center() + QPointF(dx, dy)
+        self.paint_sonar(painter, center, now)
+        breathe = 1 + 0.018 * math.sin((now - self.started) * (0.8 if self.sleepy else 1.7))
+        squash = max(-0.25, min(0.25, self.squash.value * 0.06))
+        painter.save()
+        painter.translate(center)
+        painter.rotate(self.tilt.value)
+        painter.scale(breathe * (1 + squash), breathe * (1 - squash))
+        target = QRectF(-self.ORB / 2, -self.ORB / 2, self.ORB, self.ORB)
         if not self.frame.isNull():
-            painter.drawImage(QPointF(orb_x, 4 + bob), self.frame)
+            painter.drawImage(target, self.frame)
         else:
-            paint_flat_eye(painter, QRectF(orb_x, 4, self.ORB, self.ORB), self.iris)
-        footer = self.footer_height()
-        if footer:
-            area = QRectF(0, self.ORB + 8, self.width(), footer - 2)
-            self.paint_footer(painter, area)
+            paint_flat_eye(painter, target, self.iris)
+        painter.restore()
+        if self.footer_height():
+            self.paint_footer(painter, self.footer_rect())
+
+    def paint_sonar(self, painter, center, now):
+        red = QColor(SONAR)
+        radius = self.ORB / 2
+        reach = min(self.MARGIN, (self.width() - self.ORB) / 2) - 2
+        if now < self.sweeping_until:
+            from PySide6.QtGui import QConicalGradient
+            sweep = QConicalGradient(center, -self.sweep_angle)
+            sweep.setColorAt(0.0, QColor(red.red(), red.green(), red.blue(), 120))
+            sweep.setColorAt(0.16, QColor(red.red(), red.green(), red.blue(), 0))
+            sweep.setColorAt(1.0, QColor(red.red(), red.green(), red.blue(), 0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(sweep)
+            painter.drawEllipse(center, radius + reach, radius + reach)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(red.red(), red.green(), red.blue(), 55), 1))
+            for fraction in (0.45, 1.0):
+                painter.drawEllipse(center, radius + reach * fraction, radius + reach * fraction)
+        for start in self.pings:
+            age = now - start
+            if age < 0:
+                continue
+            t = min(1.0, age / 1.4)
+            ring = radius + reach * (1 - (1 - t) ** 2)
+            alpha = int(200 * (1 - t) ** 1.4)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(red.red(), red.green(), red.blue(), alpha), 2.2 - 1.2 * t))
+            painter.drawEllipse(center, ring, ring)
 
     def paint_footer(self, painter, area):
         painter.setFont(self.footer_font())
@@ -533,7 +741,7 @@ class MascotWindow(QWidget):
         pill = QRectF(area.center().x() - text_width / 2 - 8, area.y(), text_width + 16, area.height())
         path = QPainterPath()
         path.addRoundedRect(pill, pill.height() / 2, pill.height() / 2)
-        painter.fillPath(path, QColor(8, 9, 11, 205))
+        painter.fillPath(path, QColor(8, 9, 11, 215))
         x = pill.x() + 8
         for text, color in parts:
             text = metrics.elidedText(text, Qt.TextElideMode.ElideRight, int(pill.right() - x - 4))
@@ -541,13 +749,44 @@ class MascotWindow(QWidget):
             painter.drawText(QRectF(x, pill.y(), pill.right() - x, pill.height()), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
             x += metrics.horizontalAdvance(text) + spacing
 
+    def hits_body(self, pos: QPointF) -> bool:
+        orb = self.orb_rect().adjusted(-6, -6, 6, 6)
+        center = orb.center()
+        on_orb = math.hypot(pos.x() - center.x(), pos.y() - center.y()) <= orb.width() / 2
+        return on_orb or (self.footer_height() > 0 and self.footer_rect().contains(pos))
+
     def mousePressEvent(self, event):
         self.reveal()
+        self.wake()
         if event.button() == Qt.MouseButton.LeftButton:
-            self.happy()
-            self.clicked.emit()
+            if not self.hits_body(event.position()):
+                self.press_pos = None
+                return
+            self.press_pos = event.position()
+            self.press_time = time.monotonic()
+            self.squash.velocity += 1.5  # it feels the press
+            event.accept()
         elif event.button() == Qt.MouseButton.RightButton:
             self.menu_requested.emit(event.globalPosition().toPoint())
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.press_pos is not None:
+            moved = (event.position() - self.press_pos).manhattanLength()
+            self.press_pos = None
+            now = time.monotonic()
+            if moved < 12:
+                self.happy()
+                # One action per click; the second half of a double-click is absorbed.
+                if now - self.last_click > 0.45:
+                    self.last_click = now
+                    self.clicked.emit()
+            event.accept()
+
+    def mouseDoubleClickEvent(self, event):
+        # Treat the second click of a double-click as a press so it is not lost,
+        # and never let Qt's default turn one double-click into two toggles.
+        self.mousePressEvent(event)
 
     def enterEvent(self, event):
         self.reveal()

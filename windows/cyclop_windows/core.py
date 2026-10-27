@@ -40,7 +40,7 @@ DEFAULTS = {
     "mascot_follow_cursor": True,
     "mascot_iris": "Red",
     # System stats under the mascot
-    "stats_enabled": False,
+    "stats_enabled": True,
     "stats_items": ["cpu", "ram", "gpu", "temp"],
     # Features
     "ocr_enabled": True,
@@ -52,7 +52,9 @@ DEFAULTS = {
     "whisper_model": "base",
     "speech_language": "auto",
     "hotkeys": {key: value[1] for key, value in HOTKEYS.items()},
+    "config_version": 3,
 }
+CONFIG_VERSION = 3
 
 STAT_KEYS = {"cpu": "CPU", "ram": "RAM", "gpu": "GPU", "temp": "Temp"}
 
@@ -60,6 +62,7 @@ STAT_KEYS = {"cpu": "CPU", "ram": "RAM", "gpu": "GPU", "temp": "Temp"}
 def normalise_config(config: dict) -> dict:
     """Repair types of user-editable values so a bad file can never crash startup."""
     result = copy.deepcopy(DEFAULTS)
+    version = config.get("config_version", 1) if isinstance(config.get("config_version"), int) else 1
     for key, value in config.items():
         if key not in DEFAULTS:
             result[key] = value
@@ -80,6 +83,10 @@ def normalise_config(config: dict) -> dict:
         result["whisper_model"] = DEFAULTS["whisper_model"]
     if result["speech_language"] not in ("auto", "en", "ru"):
         result["speech_language"] = "auto"
+    if version < 3:
+        # 0.2.0 saved stats as off by default; 0.2.1 shows them unless turned off since.
+        result["stats_enabled"] = True
+    result["config_version"] = CONFIG_VERSION
     return result
 
 
