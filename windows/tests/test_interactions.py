@@ -23,23 +23,51 @@ def open_panel(app, tmp_path, tab):
     return model, panel
 
 
+def native_point(widget, pos):
+    """Map a Qt point without turning ordinary child widgets into HWNDs."""
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
+    window = widget.window()
+    handle = int(window.winId())
+    local = widget.mapTo(window, pos)
+    scale = window.devicePixelRatioF()
+    point = wintypes.POINT(round(local.x() * scale), round(local.y() * scale))
+    assert user32.ClientToScreen(handle, ctypes.byref(point))
+    return user32, handle, point
+
+
 def assert_native_hit(widget):
     """On Windows, prove no topmost panel covers this control."""
     if sys.platform != "win32" or QApplication.platformName() != "windows":
         return
     from ctypes import wintypes
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32, handle, point = native_point(widget, widget.rect().center())
     user32.WindowFromPoint.argtypes = [wintypes.POINT]
     user32.WindowFromPoint.restype = wintypes.HWND
     user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
     user32.GetAncestor.restype = wintypes.HWND
-    handle = int(widget.winId())
-    rect = wintypes.RECT()
-    assert user32.GetWindowRect(handle, ctypes.byref(rect))
-    point = wintypes.POINT((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2)
     hit = user32.WindowFromPoint(point)
     assert hit and user32.GetAncestor(hit, 2) == user32.GetAncestor(handle, 2)
+
+
+def mouse_click(widget, pos=None):
+    """Use the Windows input path, including popup capture, on desktop runs."""
+    pos = pos or widget.rect().center()
+    if sys.platform == "win32" and QApplication.platformName() == "windows":
+        from ctypes import wintypes
+        user32, handle, point = native_point(widget, pos)
+        user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+        user32.mouse_event.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_size_t]
+        assert user32.SetCursorPos(point.x, point.y)
+        QTest.qWait(50)
+        user32.mouse_event(2, 0, 0, 0, 0)
+        QTest.qWait(30)
+        user32.mouse_event(4, 0, 0, 0, 0)
+        QTest.qWait(50)
+    else:
+        QTest.mouseMove(widget, pos)
+        QTest.mouseClick(widget, Qt.MouseButton.LeftButton, pos=pos)
 
 
 def test_long_media_title_fits_and_full_text_is_available(app, tmp_path):
@@ -116,7 +144,7 @@ def test_currency_dropdown_before_download_and_after_failure(app, tmp_path, monk
         assert pane.target.currentText() == "USD"
         assert pane.result.text() == ""
         assert "Fetch rates" in pane.result.placeholderText()
-        QTest.mouseClick(pane.source, Qt.MouseButton.LeftButton)
+        mouse_click(pane.source)
         app.processEvents()
         assert QApplication.activePopupWidget() is not None
         panel.buttons["notes"].hover_select()
@@ -130,9 +158,7 @@ def test_currency_dropdown_before_download_and_after_failure(app, tmp_path, monk
         assert_native_hit(view.viewport())
         item_rect = view.visualRect(index).intersected(view.viewport().rect())
         assert not item_rect.isEmpty()
-        QTest.mouseMove(view.viewport(), item_rect.center())
-        QTest.qWait(50)
-        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=item_rect.center())
+        mouse_click(view.viewport(), item_rect.center())
         app.processEvents()
         assert pane.source.currentText() == "GBP", (view.geometry(), view.viewport().rect(), item_rect, view.currentIndex().row())
         assert QApplication.activePopupWidget() is None
