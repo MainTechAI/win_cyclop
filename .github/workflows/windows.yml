@@ -43,9 +43,12 @@ jobs:
             $short = (python -m pytest --lf --tb=line -q -p no:faulthandler 2>&1 | Select-Object -Last 25) -join "%0A"
             Write-Output "::error title=pytest failures::$short"
             if (Test-Path hang.log) {
-              $lines = Get-Content hang.log | Where-Object { $_ -notmatch '^\[running\]' -and $_.Trim() -ne '' } | Select-Object -Last 60
-              $escaped = ($lines | ForEach-Object { $_.Replace('%', '%25').Replace("`r", '').Replace(':', '%3A') }) -join '%0A'
-              Write-Output "::error title=test details::$escaped"
+              $picked = Get-Content hang.log | Where-Object { $_ -match '^(\[FAILED\]|E  )' } | Select-Object -First 9
+              foreach ($line in $picked) {
+                $clean = ($line -replace '[^\x20-\x7E]', '?')
+                if ($clean.Length -gt 300) { $clean = $clean.Substring(0, 300) }
+                Write-Output ("::warning title=test detail::" + $clean.Replace('%', '%25'))
+              }
             }
           }
           exit $code
