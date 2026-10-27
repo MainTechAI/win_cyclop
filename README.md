@@ -18,7 +18,7 @@ cd win_cyclop\windows
 .\run.cmd
 ```
 
-For a portable executable, download the **CyclopWindows-win-x64** artifact from a successful [Windows build](https://github.com/MainTechAI/win_cyclop/actions/workflows/windows.yml), extract both ZIP layers, and run `CyclopWindows.exe`. No Python installation is needed for the portable build.
+Download the standalone **CyclopWindows.exe** or portable **CyclopWindows-win-x64.zip** from [Releases](https://github.com/MainTechAI/win_cyclop/releases). No Python installation is needed. Quit the running copy from its tray menu before updating.
 
 ## Included
 
@@ -34,3 +34,13 @@ For a portable executable, download the **CyclopWindows-win-x64** artifact from 
 This is **version 0.1.0**, an initial native Qt port. Calendar uses local `.ics` files rather than account sync. Offline translation requires an optional source installation and language models. The standard portable build is unsigned and excludes the translation engine. Other platform differences and a Windows desktop smoke checklist are documented in [the Windows README](windows/README.md).
 
 Original Cyclop by **akalikbergenov**, MIT licensed. This independent adaptation retains the upstream license and attribution.
+
+## Automated file scans
+
+[VirusTotal workflow](https://github.com/MainTechAI/win_cyclop/actions/workflows/virustotal.yml) scans the EXE and ZIP after successful `main` builds and Windows releases. Commit reports are retained in Actions; release reports appear below and in the release notes. [Setup and rescan instructions](https://github.com/MainTechAI/win_cyclop/blob/main/windows/docs/virustotal.md).
+
+<!-- virustotal:start -->
+## VirusTotal scans
+
+No completed scan has been verified yet. The workflow will replace this section with hash-specific report links, timestamps and detection counts.
+<!-- virustotal:end -->

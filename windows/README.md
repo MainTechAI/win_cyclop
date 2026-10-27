@@ -145,3 +145,13 @@ The hosted build does not replace these checks on a real Windows 11 desktop:
 Original Cyclop by **akalikbergenov**, MIT, source baseline `125eb02fbd28b443fe922334ae09823d4ad38df6`. The notch path is adapted from `Sources/Cyclop/UI/NotchShape.swift`, and the layout/interaction design follows its SwiftUI implementation. The upstream copyright notice and MIT license are retained at the repository root. This is an independent Windows adaptation, not an official Windows release by the original author.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for runtime dependency licensing.
+
+## Automated file scans
+
+[VirusTotal workflow](https://github.com/MainTechAI/win_cyclop/actions/workflows/virustotal.yml) scans the EXE and ZIP after successful `main` builds and Windows releases. Commit reports are retained in Actions; release reports appear below and in the release notes. [Setup and rescan instructions](https://github.com/MainTechAI/win_cyclop/blob/main/windows/docs/virustotal.md).
+
+<!-- virustotal:start -->
+## VirusTotal scans
+
+No completed scan has been verified yet. The workflow will replace this section with hash-specific report links, timestamps and detection counts.
+<!-- virustotal:end -->
