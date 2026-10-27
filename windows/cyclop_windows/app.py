@@ -504,6 +504,9 @@ class Cyclop(QObject):
         self.camera_fetching = False
         self.observations = 0
         self.mascot.tucked_changed.connect(lambda tucked: self.update_camera())
+        self.camera_retry = QTimer(self)
+        self.camera_retry.setSingleShot(True)
+        self.camera_retry.timeout.connect(self.retry_camera)
         self.panel.panes["settings"].calibration_reset.connect(self.reset_calibration)
         self.hotkeys = HotkeyFilter()
         self.hotkey_signature = None
@@ -631,6 +634,8 @@ class Cyclop(QObject):
         if not self.camera_wanted():
             if not self.model.config["camera_follow"]:
                 self.camera_error = ""
+                self.camera_retry.stop()
+                self.set_camera_status("Cyclop learns where you look from your mouse movements once the webcam option is on.")
             self.stop_camera()
             return
         if self.tracker is not None and self.tracker.camera_index != self.model.config["camera_index"]:
@@ -655,8 +660,9 @@ class Cyclop(QObject):
         self.tracker = FaceTracker(path, self.model.config["camera_index"], self)
         self.tracker.observation.connect(self.camera_observation)
         self.tracker.failed.connect(self.camera_failed)
+        self.tracker.opened.connect(lambda name: self.set_camera_status(f"Using {name}. " + self.calibration_text()))
         self.tracker.start()
-        self.set_camera_status(self.calibration_text())
+        self.set_camera_status("Opening the camera…")
 
     def stop_camera(self):
         if self.tracker is not None:
@@ -667,10 +673,19 @@ class Cyclop(QObject):
             self.mascot.set_user_gaze(None)
 
     def camera_failed(self, error):
+        first = not self.camera_error
         self.camera_error = error
         self.stop_camera()
-        self.set_camera_status(error + " Turn the option off and on to retry.")
-        self.notify(error, 5)
+        self.set_camera_status(error)
+        if first:
+            self.notify("Camera unavailable — Cyclop follows the mouse for now", 5)
+        # Try again later (e.g. once a video call or the Camera app closes).
+        self.camera_retry.start(20_000)
+
+    def retry_camera(self):
+        if self.model.config["camera_follow"] and self.camera_error:
+            self.camera_error = ""
+            self.update_camera()
 
     def camera_observation(self, observation):
         if observation is None:
@@ -708,6 +723,7 @@ class Cyclop(QObject):
     def reset_calibration(self):
         self.calibrator.reset()
         self.camera_error = ""
+        self.camera_retry.stop()
         self.set_camera_status(self.calibration_text())
         self.update_camera()
 
@@ -904,6 +920,7 @@ class Cyclop(QObject):
         self.hotkeys.close()
         if self.awake:
             keep_awake(False)
+        self.camera_retry.stop()
         self.stop_camera()
         self.mascot.shutdown()
         self.stats.stop()

@@ -336,7 +336,7 @@ class MascotWindow(QWidget):
         self.orbit_total, self.orbit_started = 0.0, now
         self.near = False
         self.input_tick = 0
-        self.last_typing = 0.0
+        self.last_typing = -1e9  # "never", whatever the clock origin
         self.reading_start = now
         self.clicks: list[float] = []
         self.face = None             # (x, y) in [0, 1], mirrored camera coordinates
