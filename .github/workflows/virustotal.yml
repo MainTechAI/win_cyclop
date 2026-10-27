@@ -1,0 +1,76 @@
+name: VirusTotal
+
+on:
+  workflow_run:
+    workflows: ['Windows build', 'Windows release']
+    types: [completed]
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths: ['.github/workflows/virustotal.yml', 'windows/scripts/virustotal.py']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to scan (latest if blank); leave blank when using build_run_id'
+        type: string
+        default: ''
+      build_run_id:
+        description: 'Optional successful main-branch Windows build run ID'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    # workflow_run has access to secrets: never consume artifacts from PRs/forks.
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'windows-v')) ||
+      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download and verify scan inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python windows/scripts/virustotal.py prepare
+      - name: Submit files and wait for completed analyses
+        id: scan
+        continue-on-error: true
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: python windows/scripts/virustotal.py scan
+      - name: Publish release report and latest README results
+        if: always() && steps.scan.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python windows/scripts/virustotal.py publish
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: VirusTotal-report
+          path: scan-report/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Require completed scans with no detections
+        if: steps.scan.outcome == 'failure'
+        run: |
+          echo 'VirusTotal reported detections or could not complete. See the report; no clean result is implied.'
+          exit 1
