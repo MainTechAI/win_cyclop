@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 
 from PySide6.QtCore import QThread, Signal
 
@@ -22,47 +23,76 @@ class StatsWorker(QThread):
         self.enabled.set()
 
     def run(self):
-        try:
-            import psutil
-        except ImportError:
-            psutil = None
-        counters = None
-        if sys.platform == "win32":
-            from .windows import PerformanceCounters
-            counters = PerformanceCounters()
-        nvml = _Nvml()
-        if psutil:
-            psutil.cpu_percent(None)
+        sampler = StatsSampler()
         try:
             while not self.stop_event.is_set():
                 if not self.enabled.wait(0.5):
                     continue
+                self.sample.emit(sampler.sample())
                 if self.stop_event.wait(self.interval):
                     break
-                values = {"cpu": None, "ram": None, "gpu": None, "temp": None, "details": []}
-                if psutil:
-                    values["cpu"] = psutil.cpu_percent(None)
-                    memory = psutil.virtual_memory()
-                    values["ram"] = memory.percent
-                    values["details"].append(f"Memory {memory.used / 2**30:.1f} of {memory.total / 2**30:.1f} GB")
-                native = counters.sample() if counters else {}
-                gpu_util, gpu_temp, gpu_name = nvml.sample()
-                values["gpu"] = native.get("gpu", gpu_util)
-                if gpu_name:
-                    values["details"].append(f"{gpu_name}: {gpu_util:.0f}% · {gpu_temp:.0f}°C" if gpu_temp is not None else gpu_name)
-                if "temp" in native:
-                    values["temp"] = native["temp"]
-                    values["details"].append(f"Thermal zone {native['temp']:.0f}°C")
-                elif gpu_temp is not None:
-                    values["temp"] = gpu_temp
-                    values["details"].append("Temperature reported by the GPU")
-                else:
-                    values["details"].append("Windows exposes no temperature sensor to apps on this PC")
-                self.sample.emit(values)
         finally:
-            if counters:
-                counters.close()
-            nvml.close()
+            sampler.close()
+
+
+class StatsSampler:
+    """One source of CPU, memory, GPU and temperature readings."""
+
+    def __init__(self):
+        try:
+            import psutil
+            psutil.cpu_percent(None)
+        except Exception:
+            psutil = None
+        self.psutil = psutil
+        self.counters = None
+        if sys.platform == "win32":
+            try:
+                from .windows import PerformanceCounters
+                self.counters = PerformanceCounters()
+            except Exception:
+                self.counters = None
+        self.nvml = _Nvml()
+
+    def sample(self) -> dict:
+        values = {"cpu": None, "ram": None, "gpu": None, "temp": None, "details": []}
+        try:
+            if self.psutil:
+                values["cpu"] = self.psutil.cpu_percent(None)
+                memory = self.psutil.virtual_memory()
+                values["ram"] = memory.percent
+                values["details"].append(f"Memory {memory.used / 2**30:.1f} of {memory.total / 2**30:.1f} GB")
+            native = self.counters.sample() if self.counters else {}
+            gpu_util, gpu_temp, gpu_name = self.nvml.sample()
+            values["gpu"] = native.get("gpu", gpu_util)
+            if gpu_name:
+                values["details"].append(f"{gpu_name}: {gpu_util:.0f}% · {gpu_temp:.0f}°C" if gpu_temp is not None and gpu_util is not None else gpu_name)
+            if "temp" in native:
+                values["temp"] = native["temp"]
+                values["details"].append(f"Thermal zone {native['temp']:.0f}°C")
+            elif gpu_temp is not None:
+                values["temp"] = gpu_temp
+                values["details"].append("Temperature reported by the GPU")
+            else:
+                values["details"].append("Windows exposes no temperature sensor to apps on this PC")
+        except Exception as exc:  # never let a sensor take the worker down
+            values["details"].append(f"Stats error: {exc}")
+        return values
+
+    def close(self):
+        if self.counters:
+            self.counters.close()
+        self.nvml.close()
+
+
+def sample_once(delay=0.5) -> dict:
+    """A single reading (used by the startup self-check)."""
+    sampler = StatsSampler()
+    try:
+        time.sleep(delay)
+        return sampler.sample()
+    finally:
+        sampler.close()
 
 
 class _Nvml:

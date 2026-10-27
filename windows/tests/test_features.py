@@ -80,6 +80,22 @@ def test_config_repairs_bad_values_and_keeps_unknown_keys():
     assert config["mascot_iris"] == "Red" and config["future"] == 1
 
 
+def test_stats_are_on_by_default_and_for_upgraded_installs():
+    assert normalise_config({})["stats_enabled"] is True
+    upgraded = normalise_config({"stats_enabled": False, "voice_enabled": True})  # a 0.2.0 config file
+    assert upgraded["stats_enabled"] is True and upgraded["voice_enabled"] is True
+    chosen = normalise_config({"stats_enabled": False, "config_version": 3})  # turned off since
+    assert chosen["stats_enabled"] is False
+
+
+def test_stats_sampler_reports_cpu_and_memory():
+    from cyclop_windows.system import sample_once
+    values = sample_once(0.2)
+    assert values["cpu"] is not None and 0 <= values["cpu"] <= 100
+    assert values["ram"] is not None and 0 < values["ram"] <= 100
+    assert values["details"]
+
+
 def test_stat_colours_and_labels():
     assert stat_color("cpu", 10) == "#6ee07a"
     assert stat_color("cpu", 65) == "#ffcc4d"
@@ -253,6 +269,12 @@ def test_mascot_slides_away_when_idle_and_shows_stats(app, tmp_path):
         mascot.reveal()
         mascot.slide.setCurrentTime(mascot.slide.duration())
         assert mascot.offset == 0.0
+        mascot.set_tucked(True)
+        mascot.slide.setCurrentTime(mascot.slide.duration())
+        footer_top = mascot.mapToGlobal(mascot.footer_rect().topLeft().toPoint()).y()
+        assert footer_top >= mascot.screen_bounds().top(), "stats stay visible while tucked"
+        mascot.reveal()
+        mascot.slide.setCurrentTime(mascot.slide.duration())
         model.configure("mascot_autohide", False)
         mascot.set_tucked(True)
         assert not mascot.tucked
@@ -261,6 +283,68 @@ def test_mascot_slides_away_when_idle_and_shows_stats(app, tmp_path):
     finally:
         mascot.shutdown()
         mascot.close()
+
+
+def test_mascot_click_fires_once_and_ignores_the_sonar_margin(app, tmp_path):
+    from PySide6.QtTest import QTest
+    from cyclop_windows.mascot import MascotWindow
+    model = Model(tmp_path)
+    mascot = MascotWindow(model, start_animation=False)
+    try:
+        mascot.tick()
+        clicks = []
+        mascot.clicked.connect(lambda: clicks.append(1))
+        center = mascot.orb_rect().center().toPoint()
+        QTest.mouseClick(mascot, Qt.MouseButton.LeftButton, pos=center)
+        assert clicks == [1]
+        mascot.last_click = 0
+        QTest.mouseClick(mascot, Qt.MouseButton.LeftButton, pos=center)
+        QTest.mouseClick(mascot, Qt.MouseButton.LeftButton, pos=center)  # second half of a double-click
+        assert len(clicks) == 2, "a double-click is one action, not two toggles"
+        mascot.last_click = 0
+        QTest.mouseClick(mascot, Qt.MouseButton.LeftButton, pos=QPoint(2, 2))
+        assert len(clicks) == 2
+        assert mascot.pings, "a click sends a sonar ping"
+    finally:
+        mascot.shutdown()
+        mascot.close()
+
+
+def test_mascot_is_lively_and_scans_with_sonar(app, tmp_path):
+    from cyclop_windows.mascot import MascotWindow
+    model = Model(tmp_path)
+    mascot = MascotWindow(model, start_animation=False)
+    try:
+        mascot.tick()
+        mascot.set_state("scanning")
+        mascot.look_at(QPoint(10, 600))
+        assert mascot.pings and mascot.sweeping_until > 0
+        for _ in range(5):
+            mascot.tick()
+        assert mascot.target[0] < 0, "it looks towards the area it scans"
+        picture = mascot.grab().toImage()
+        assert not picture.isNull()
+        mascot.set_state("idle")
+        mascot.choose_behaviour(__import__("time").monotonic())
+        assert mascot.behaviour in {"look_around", "tilt", "hop", "sonar", "squint"}
+        mascot.last_pointer_move -= 1000
+        assert mascot.sleepy
+        mascot.wake()
+        assert not mascot.sleepy
+    finally:
+        mascot.shutdown()
+        mascot.close()
+
+
+def test_scan_overlay_fades_out(app):
+    from cyclop_windows.capture import ScanOverlay
+    overlay = ScanOverlay(QRect(100, 100, 300, 120))
+    overlay.show()
+    assert not overlay.grab().isNull()
+    overlay.finish(True)
+    overlay.ending -= 1
+    overlay.step()
+    assert not overlay.isVisible()
 
 
 def test_ico_contains_every_size(tmp_path, app):
@@ -291,10 +375,12 @@ def test_region_selection_crops_the_frozen_screenshot(app):
     snapshot = QPixmap.fromImage(text_image())
     selector = RegionSelector(snapshot=snapshot)
     results = []
-    selector.selected.connect(results.append)
+    selector.selected.connect(lambda image, area: results.append((image, area)))
     selector.accept_area(QRect(10, 10, 200, 50))
-    assert results and results[0].width() == 200 and results[0].height() == 50
-    png = prepare_for_ocr(results[0])
+    image, area = results[0]
+    assert image.width() == 200 and image.height() == 50
+    assert area.size() == QRect(10, 10, 200, 50).size()
+    png = prepare_for_ocr(image)
     assert png.startswith(b"\x89PNG")
     upscaled = QImage.fromData(png)
     assert upscaled.width() > 200  # small regions are enlarged for better recognition

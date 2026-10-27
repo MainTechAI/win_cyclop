@@ -69,8 +69,10 @@ This runs the test suite and creates `dist\CyclopWindows-win-x64.zip`. The stand
 
 A 3D floating eye orb sits beside the notch (red by default; other eye colours in Settings). It is ray-traced per pixel: a glossy sphere with key and fill lights, studio reflections, a rim light, a glowing fibred iris that looks around, follows the pointer and blinks, and eyelids that close over it. After an idle period (8 s by default) it slides up so only a sliver stays visible; hover the sliver to bring it back.
 
-- **Click** Cyclop to give a voice command (when voice commands are on) or to open the panel. **Right-click** for the tray menu.
-- **System stats** (optional): CPU, RAM, GPU and temperature appear under Cyclop as coloured numbers — green, yellow at 50/60, red at 80. Hover for details. GPU uses the Windows 3D-engine counter (any GPU) with NVIDIA NVML as fallback; temperature uses ACPI thermal zones or the NVIDIA GPU sensor. Some PCs expose no temperature to normal apps; then it shows `Temp –`.
+- It is alive: it breathes and floats, tilts its head, hops, looks around while **scanning with red sonar** (pulses and a radar sweep), perks up when the pointer comes near, bounces when clicked, shakes on errors and dozes off when left alone for a while.
+- **Text capture** shows a red sonar sweep over the selected area while Cyclop stares at it and reads.
+- **Click** Cyclop to give a voice command (when voice commands are on) or to open/close the panel. **Right-click** for the tray menu.
+- **System stats** (on by default; turn off in Settings): CPU, RAM, GPU and temperature appear under Cyclop as coloured numbers and stay visible when it tucks away — green, yellow at 50/60, red at 80. Hover for details. GPU uses the Windows 3D-engine counter (any GPU) with NVIDIA NVML as fallback; temperature uses ACPI thermal zones or the NVIDIA GPU sensor. Some PCs expose no temperature to normal apps; then it shows `Temp –`.
 - The `.exe`, tray and window icons are a flat 2D version of the same eye.
 
 ## Shortcuts

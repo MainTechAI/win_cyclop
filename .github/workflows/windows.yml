@@ -99,6 +99,7 @@ jobs:
           $process.Refresh()
           if ($process.ExitCode -ne 0) { throw "Packaged startup test failed: $($process.ExitCode)" }
           $report = Get-Content (Join-Path $env:CYCLOP_DATA_DIR 'startup-check.json') | ConvertFrom-Json
+          Write-Output ("::notice title=packaged self-check::" + ((Get-Content (Join-Path $env:CYCLOP_DATA_DIR 'startup-check.json') -Raw | ConvertFrom-Json | ConvertTo-Json -Compress -Depth 4) -replace '[^\x20-\x7E]', '?'))
           if (-not $report.success) { throw "Packaged startup check did not succeed." }
           Write-Output "Packaged UI rendered and exited cleanly."
           Copy-Item (Join-Path $env:CYCLOP_DATA_DIR 'startup-check.json') dist\CyclopWindows\STARTUP-CHECK.json

@@ -218,3 +218,45 @@ def test_tab_clicks_during_resize_and_fast_expand(app, tmp_path):
     finally:
         panel.shutdown()
         panel.close()
+
+
+def test_clicking_the_eye_opens_the_panel(app, tmp_path):
+    """Real mouse input on Windows: the click must land on Cyclop and open the panel."""
+    from cyclop_windows.app import Cyclop
+    model = Model(tmp_path)
+    cyclop = Cyclop(model, start_services=False)
+    try:
+        cyclop.panel.watcher.stop()
+        cyclop.panel.show()
+        cyclop.mascot.apply_config()
+        cyclop.mascot.tick()
+        cyclop.mascot.update()
+        QTest.qWait(300)
+        assert not cyclop.panel.expanded
+        target = cyclop.mascot
+        point = target.orb_rect().center().toPoint()
+        diagnostics = ""
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            from ctypes import wintypes
+            user32, handle, native = native_point(target, point)
+            user32.WindowFromPoint.argtypes = [wintypes.POINT]
+            user32.WindowFromPoint.restype = wintypes.HWND
+            user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+            user32.GetAncestor.restype = wintypes.HWND
+            hit = user32.WindowFromPoint(native)
+            title = ctypes.create_unicode_buffer(128)
+            user32.GetWindowTextW(user32.GetAncestor(hit, 2), title, 128)
+            diagnostics = (f"hit={hit} root={user32.GetAncestor(hit, 2)} mascot={handle} title={title.value!r} "
+                           f"pos={target.pos().x()},{target.pos().y()} size={target.width()}x{target.height()}")
+        mouse_click(target, point)
+        QTest.qWait(250)
+        assert cyclop.panel.expanded, "clicking the eye did nothing: " + diagnostics
+        # A second click closes it again.
+        QTest.qWait(500)
+        mouse_click(target, target.orb_rect().center().toPoint())
+        QTest.qWait(250)
+        assert not cyclop.panel.expanded, "second click did not close the panel: " + diagnostics
+    finally:
+        cyclop.shutdown()
+        cyclop.panel.close()
+        cyclop.mascot.close()
