@@ -72,7 +72,7 @@ def test_large_upload_uses_one_time_url(tmp_path, monkeypatch):
             return b'fixture'
     client = vt.VTClient('test-only')
     calls = []
-    responses = iter([None, {'data': 'https://www.virustotal.com/upload/fixture'}, {'data': {'id': 'analysis'}},
+    responses = iter([None, {'data': 'https://bigfiles.virustotal.com/upload/fixture'}, {'data': {'id': 'analysis'}},
                       {'data': {'attributes': {'status': 'completed', 'stats': STATS, 'date': 1793110000}},
                        'meta': {'file_info': {'sha256': 'a' * 64}}}])
     def request(*args):
@@ -81,7 +81,7 @@ def test_large_upload_uses_one_time_url(tmp_path, monkeypatch):
     monkeypatch.setattr(client, 'request', request)
     client.scan(LargeFile(), 'a' * 64)
     assert calls[1][0] == 'files/upload_url'
-    assert calls[2][0] == 'https://www.virustotal.com/upload/fixture'
+    assert calls[2][0] == 'https://bigfiles.virustotal.com/upload/fixture'
 
 
 def test_empty_statistics_never_become_zero_detections():
@@ -137,3 +137,18 @@ def test_throttle_is_retried_without_logging_key(monkeypatch):
 def test_upload_cannot_send_key_to_another_host():
     with pytest.raises(ValueError, match='Unexpected'):
         vt.VTClient('test-only').request('https://example.com/upload', b'fixture')
+
+
+def test_official_large_file_host_is_accepted(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def read(self):
+            return b'{"data": {"id": "analysis"}}'
+    def request(req, **kwargs):
+        assert req.full_url == 'https://bigfiles.virustotal.com/upload/fixture'
+        return Response()
+    monkeypatch.setattr(vt, 'urlopen', request)
+    assert vt.VTClient('test-only').request('https://bigfiles.virustotal.com/upload/fixture', b'fixture')['data']['id'] == 'analysis'

@@ -139,7 +139,9 @@ class VTClient:
     def request(self, path, data=None, content_type=None):
         url = path if path.startswith('https://') else 'https://www.virustotal.com/api/v3/' + path
         parsed = urlsplit(url)
-        if parsed.scheme != 'https' or parsed.hostname != 'www.virustotal.com' or parsed.username or parsed.port not in (None, 443):
+        # VirusTotal's large-file API returns bigfiles.virustotal.com, not
+        # necessarily the hostname used for API metadata requests.
+        if parsed.scheme != 'https' or parsed.hostname not in ('www.virustotal.com', 'bigfiles.virustotal.com') or parsed.username or parsed.port not in (None, 443):
             raise ValueError('Unexpected VirusTotal upload URL')
         while True:
             time.sleep(max(0, self.next_request - time.monotonic()))
