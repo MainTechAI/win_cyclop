@@ -336,6 +336,56 @@ def test_mascot_is_lively_and_scans_with_sonar(app, tmp_path):
         mascot.close()
 
 
+def test_ocr_preparation_handles_dark_mode_and_thin_strips(app):
+    from cyclop_windows.capture import is_dark, ocr_variants, prepare_for_ocr
+    strip = text_image("Name Date modified", size=(930, 26), dark=True, point=10)
+    assert is_dark(strip) and not is_dark(text_image())
+    prepared = QImage.fromData(prepare_for_ocr(strip))
+    assert prepared.height() >= 72, "thin strips are enlarged so glyphs are big enough"
+    assert not is_dark(prepared), "light-on-dark text becomes dark-on-light"
+    first, second = (QImage.fromData(png) for png in ocr_variants(strip))
+    assert is_dark(first) != is_dark(second)
+
+
+def test_eye_stays_put_when_the_panel_opens(app, tmp_path, monkeypatch):
+    from cyclop_windows.mascot import MascotWindow
+    laptop = QRect(0, 0, 1536, 824)  # 1920×1080 at 125 % scaling, minus the taskbar
+    monkeypatch.setattr(MascotWindow, "screen_bounds", lambda self: laptop)
+    model = Model(tmp_path)
+    mascot = MascotWindow(model, start_animation=False)
+    try:
+        collapsed = QRect(768 - 96, 0, 192, 28)
+        expanded = QRect(768 - 322, 0, 644, 264)
+        mascot.set_anchor(collapsed)
+        before = mascot.eye_center_global()
+        mascot.set_anchor(expanded)
+        assert mascot.eye_center_global().x() == before.x(), "a second click in the same place must still hit the eye"
+        # The docked stats pill never slides under the notch or the open panel.
+        mascot.slide.setDuration(1)
+        mascot.set_tucked(True)
+        mascot.slide.setCurrentTime(1)
+        pill_left = mascot.mapToGlobal(QPoint(0, 0)).x() + (mascot.width() - mascot.stats_width()) / 2
+        assert pill_left >= expanded.right()
+        assert mascot.frameGeometry().right() <= laptop.right()
+    finally:
+        mascot.shutdown()
+        mascot.close()
+
+
+def test_eye_stays_on_narrow_screens(app, tmp_path, monkeypatch):
+    from cyclop_windows.mascot import MascotWindow
+    narrow = QRect(0, 0, 800, 600)
+    monkeypatch.setattr(MascotWindow, "screen_bounds", lambda self: narrow)
+    mascot = MascotWindow(Model(tmp_path), start_animation=False)
+    try:
+        mascot.set_anchor(QRect(400 - 322, 0, 644, 264))
+        center = mascot.eye_center_global()
+        assert narrow.left() < center.x() < narrow.right()
+    finally:
+        mascot.shutdown()
+        mascot.close()
+
+
 def test_scan_overlay_fades_out(app):
     from cyclop_windows.capture import ScanOverlay
     overlay = ScanOverlay(QRect(100, 100, 300, 120))
@@ -359,12 +409,12 @@ def test_ico_contains_every_size(tmp_path, app):
 
 
 # ---------------------------------------------------------------- text capture
-def text_image(text="Cyclop 2026"):
-    image = QImage(420, 90, QImage.Format.Format_ARGB32)
-    image.fill(QColor("white"))
+def text_image(text="Cyclop 2026", size=(420, 90), dark=False, point=36):
+    image = QImage(size[0], size[1], QImage.Format.Format_ARGB32)
+    image.fill(QColor("#1c1c1c" if dark else "white"))
     painter = QPainter(image)
-    painter.setPen(QColor("black"))
-    painter.setFont(QFont("Segoe UI", 36))
+    painter.setPen(QColor("#d0d0d0" if dark else "black"))
+    painter.setFont(QFont("Segoe UI", point))
     painter.drawText(image.rect(), Qt.AlignmentFlag.AlignCenter, text)
     painter.end()
     return image
@@ -405,6 +455,16 @@ def test_windows_ocr_reads_rendered_text(app):
     text = ocr_png(prepare_for_ocr(image))
     simplified = text.lower().replace("i", "l").replace("|", "l").replace(" ", "")
     assert "cyclop" in simplified and "2026" in simplified, repr(text)
+    # Regression: a thin strip of dark-mode text (like Explorer's column headers)
+    # used to come back empty.
+    from cyclop_windows.capture import ocr_variants
+    strip = text_image("Name    Date modified    Type    Size", size=(930, 26), dark=True, point=10)
+    found = ""
+    for png in ocr_variants(strip):
+        found = ocr_png(png)
+        if found.strip():
+            break
+    assert "date" in found.lower() and "size" in found.lower(), repr(found)
 
 
 @windows_only

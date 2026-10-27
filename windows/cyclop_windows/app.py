@@ -23,7 +23,7 @@ from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 
 from .camera import FaceTracker, GazeCalibrator, download_model, find_model
-from .capture import RegionSelector, ScanOverlay, prepare_for_ocr
+from .capture import RegionSelector, ScanOverlay, ocr_variants
 from .popups import LookupPopup, SelectionGrabber
 from .services import ocr_png
 from .speech import Transcriber
@@ -872,7 +872,15 @@ class Cyclop(QObject):
             overlay.show()
             self.mascot.look_at(area.center())
         self.mascot.set_state("scanning")
-        png = prepare_for_ocr(image)
+        variants = ocr_variants(image)
+
+        def read_text():
+            text = ""
+            for png in variants:  # retry with inverted colours if nothing was found
+                text = ocr_png(png)
+                if text.strip():
+                    break
+            return text
 
         def done(text):
             if overlay is not None:
@@ -893,7 +901,7 @@ class Cyclop(QObject):
             QTimer.singleShot(1200, lambda: self.mascot.set_state("idle"))
             pane.show_error(error)
             self.notify(error, 6)
-        self.model.run_job(lambda: ocr_png(png), done, failed)
+        self.model.run_job(read_text, done, failed)
 
     # ------------------------------------------------------------ define / translate selection
     def start_lookup(self, mode):

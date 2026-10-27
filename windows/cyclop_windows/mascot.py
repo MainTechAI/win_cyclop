@@ -454,12 +454,31 @@ class MascotWindow(QWidget):
         screen = QApplication.screenAt(self.anchor.center()) if not self.anchor.isNull() else None
         return (screen or QApplication.primaryScreen()).availableGeometry()
 
+    def stats_width(self):
+        """Width of the docked stats pill (with the eye dot), independent of captions."""
+        from PySide6.QtGui import QFontMetrics
+        if not self.stats_visible():
+            return 0
+        metrics = QFontMetrics(self.footer_font())
+        parts = ["●"] + [STAT_KEYS[key] + " 100%" for key in STAT_KEYS if key in self.model.config["stats_items"]]
+        return min(360, sum(metrics.horizontalAdvance(text) for text in parts) + 9 * (len(parts) - 1) + 32)
+
     def reposition(self):
         bounds = self.screen_bounds()
         anchor = self.anchor if not self.anchor.isNull() else QRect(bounds.center().x() - 96, bounds.y(), 192, 28)
-        center_x = anchor.right() + 12 + self.ORB // 2
-        if center_x + self.ORB // 2 > bounds.right():
-            center_x = anchor.left() - 12 - self.ORB // 2
+        # Stay put whether the panel is open or closed: sit beside where the *expanded*
+        # panel ends, far enough out that the stats pill never slides under the notch
+        # or the open panel. Clicking the eye twice in the same spot therefore works.
+        half_panel = min(644, bounds.width()) // 2
+        gap = max(12 + self.ORB / 2, 8 + self.stats_width() / 2)
+        notch_center = anchor.center().x()
+        reach = max(self.ORB / 2, self.stats_width() / 2) + 4
+        center_x = int(notch_center + half_panel + gap)
+        if center_x + reach > bounds.right():
+            center_x = int(notch_center - half_panel - gap)
+        if center_x - reach < bounds.left():
+            # Narrow screen: no room beside the open panel; stay inside the screen.
+            center_x = int(min(bounds.right() - reach, max(bounds.left() + reach, notch_center + 96 + gap)))
         x = center_x - self.width() // 2
         shown_top = bounds.y() + 4
         # Tucked: the whole eye sits above the screen edge; the stats pill (or a
