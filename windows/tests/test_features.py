@@ -364,9 +364,28 @@ def test_eye_stays_put_when_the_panel_opens(app, tmp_path, monkeypatch):
         mascot.slide.setDuration(1)
         mascot.set_tucked(True)
         mascot.slide.setCurrentTime(1)
-        pill_left = mascot.mapToGlobal(QPoint(0, 0)).x() + (mascot.width() - mascot.stats_width()) / 2
+        pill_left = mascot.mapToGlobal(mascot.footer_rect().topLeft().toPoint()).x()
         assert pill_left >= expanded.right()
+        assert mascot.frameGeometry().left() >= expanded.right(), "no invisible margin over the open panel"
         assert mascot.frameGeometry().right() <= laptop.right()
+    finally:
+        mascot.shutdown()
+        mascot.close()
+
+
+def test_eye_fits_beside_the_panel_on_a_1024_screen(app, tmp_path, monkeypatch):
+    from cyclop_windows.mascot import MascotWindow
+    small = QRect(0, 0, 1024, 728)  # GitHub's Windows runner
+    monkeypatch.setattr(MascotWindow, "screen_bounds", lambda self: small)
+    mascot = MascotWindow(Model(tmp_path), start_animation=False)
+    try:
+        expanded = QRect(512 - 322, 0, 644, 264)
+        mascot.set_anchor(expanded)
+        eye = mascot.eye_center_global()
+        assert eye.x() - mascot.ORB // 2 > expanded.right(), "the eye is beside the panel, not under it"
+        assert mascot.frameGeometry().right() <= small.right() + 1
+        pill = mascot.mapToGlobal(mascot.footer_rect().topLeft().toPoint()).x()
+        assert pill >= expanded.right() or pill + mascot.footer_width() <= small.right() + 2
     finally:
         mascot.shutdown()
         mascot.close()
