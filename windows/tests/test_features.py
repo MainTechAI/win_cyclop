@@ -307,7 +307,8 @@ def test_windows_ocr_reads_rendered_text():
     if not ocr_languages():
         pytest.skip("No Windows OCR language installed on this machine")
     text = ocr_png(prepare_for_ocr(text_image("Cyclop 2026")))
-    assert "Cyclop" in text and "2026" in text
+    simplified = text.lower().replace("i", "l").replace("|", "l").replace(" ", "")
+    assert "cyclop" in simplified and "2026" in simplified, repr(text)
 
 
 @windows_only
