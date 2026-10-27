@@ -128,9 +128,13 @@ def test_currency_dropdown_before_download_and_after_failure(app, tmp_path, monk
         # selecting an item with the click that opened it.
         QTest.qWait(250)
         assert_native_hit(view.viewport())
-        QTest.mouseMove(view.viewport(), view.visualRect(index).center())
-        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=view.visualRect(index).center())
-        assert pane.source.currentText() == "GBP"
+        item_rect = view.visualRect(index).intersected(view.viewport().rect())
+        assert not item_rect.isEmpty()
+        QTest.mouseMove(view.viewport(), item_rect.center())
+        QTest.qWait(50)
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=item_rect.center())
+        app.processEvents()
+        assert pane.source.currentText() == "GBP", (view.geometry(), view.viewport().rect(), item_rect, view.currentIndex().row())
         assert QApplication.activePopupWidget() is None
         monkeypatch.setattr(model, "run_job", lambda function, done, failed: failed("Network unavailable"))
         QTest.mouseClick(pane.refresh_button, Qt.MouseButton.LeftButton)

@@ -82,7 +82,12 @@ class PanelFileDialog(QFileDialog):
 
 class PanelComboBox(QComboBox):
     def showPopup(self):
+        view = self.view()
+        # Leave room for the item text and scrollbar on Windows as well as the
+        # compact closed selector. Otherwise the popup can clip its item area.
+        view.setMinimumWidth(max(self.width(), view.sizeHintForColumn(0) +
+                                 view.verticalScrollBar().sizeHint().width() + 2 * view.frameWidth()))
         # Preserve Qt.Popup (including outside-click dismissal) and explicitly
         # put its separate native window in the same topmost band as the panel.
-        self.view().window().setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
+        view.window().setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
         super().showPopup()
