@@ -7,6 +7,7 @@ on:
   pull_request:
     paths: ['windows/**', '.github/workflows/windows.yml']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -36,6 +37,10 @@ jobs:
         run: python -m pytest -q
       - name: Verify native Windows media bindings
         run: python scripts/check-winrt.py
+      - name: Test desktop interactions and window stacking
+        env:
+          QT_QPA_PLATFORM: windows
+        run: python -m pytest tests/test_interactions.py -q
       - name: Build portable application
         run: |
           python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --collect-submodules winrt --copy-metadata cyclop-windows scripts/launch.py
@@ -61,9 +66,27 @@ jobs:
           Copy-Item (Join-Path $env:CYCLOP_DATA_DIR 'startup-check.json') dist\CyclopWindows\STARTUP-CHECK.json
       - name: Package
         run: Compress-Archive -Path dist\CyclopWindows -DestinationPath dist\CyclopWindows-win-x64.zip
+      - name: Build standalone executable
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onefile --name CyclopWindows --distpath dist/standalone --collect-submodules winrt --copy-metadata cyclop-windows --add-data "dist/CyclopWindows/licenses:licenses" --add-data "../LICENSE:." --add-data "THIRD_PARTY_NOTICES.md:." scripts/launch.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Smoke test standalone executable
+        run: |
+          $env:CYCLOP_DATA_DIR = Join-Path $env:RUNNER_TEMP 'cyclop-standalone-smoke'
+          $process = Start-Process -FilePath dist\standalone\CyclopWindows.exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            Stop-Process -Id $process.Id
+            throw "Standalone startup test timed out."
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Standalone startup test failed: $($process.ExitCode)" }
+          $report = Get-Content (Join-Path $env:CYCLOP_DATA_DIR 'startup-check.json') | ConvertFrom-Json
+          if (-not $report.success) { throw "Standalone startup check did not succeed." }
       - uses: actions/upload-artifact@v4
         with:
           name: CyclopWindows-win-x64
-          path: windows/dist/CyclopWindows-win-x64.zip
+          path: |
+            windows/dist/CyclopWindows-win-x64.zip
+            windows/dist/standalone/CyclopWindows.exe
           if-no-files-found: error
           retention-days: 30

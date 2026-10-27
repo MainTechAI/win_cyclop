@@ -46,12 +46,20 @@ class RailButton(QToolButton):
         self.setFixedSize(30, 28)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
-        self.timer.setInterval(170)
-        self.timer.timeout.connect(lambda: panel.select_tab(key))
-        self.clicked.connect(lambda: panel.select_tab(key))
+        self.timer.setInterval(100)
+        self.timer.timeout.connect(self.hover_select)
+        self.clicked.connect(self.click_select)
+
+    def hover_select(self):
+        if not QApplication.activeModalWidget() and not QApplication.activePopupWidget() and self.isVisible():
+            self.panel.select_tab(self.key)
+
+    def click_select(self):
+        self.timer.stop()
+        self.panel.select_tab(self.key)
 
     def enterEvent(self, event):
-        if self.panel.model.config["hover_tabs"]:
+        if self.panel.model.config["hover_tabs"] and not QApplication.activeModalWidget() and not QApplication.activePopupWidget():
             self.timer.start()
         super().enterEvent(event)
 
@@ -138,7 +146,7 @@ class Panel(QWidget):
         body_layout.addWidget(self.stack, 1)
         body_layout.addLayout(self.rail(RIGHT))
         self.animation = QPropertyAnimation(self, b"geometry", self)
-        self.animation.setDuration(220)
+        self.animation.setDuration(120)
         self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.animation.finished.connect(self.animation_done)
         self.status_timer = QTimer(self)
@@ -239,8 +247,13 @@ class Panel(QWidget):
 
     def animate(self):
         self.animation.stop()
+        target = self.target_rect()
+        if self.geometry() == target:
+            self.animation_done()
+            return
+        self.animation.setDuration(120 if self.expanded else 90)
         self.animation.setStartValue(self.geometry())
-        self.animation.setEndValue(self.target_rect())
+        self.animation.setEndValue(target)
         self.animation.start()
 
     def animation_done(self):
@@ -261,19 +274,21 @@ class Panel(QWidget):
     def pointer_tick(self):
         if QApplication.activeModalWidget() or QApplication.activePopupWidget():
             self.outside_ticks = 0
+            for control in self.buttons.values():
+                control.timer.stop()
             return
         inside = self.geometry().contains(QCursor.pos())
         if inside:
             self.outside_ticks = 0
             self.inside_ticks += 1
-            if not self.expanded and self.inside_ticks >= 3 and self.model.config["hover_open"]:
+            if not self.expanded and self.inside_ticks >= 2 and self.model.config["hover_open"]:
                 self.set_expanded(True)
         else:
             self.inside_ticks = 0
             self.outside_ticks += 1
             editing = self.isActiveWindow() and isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit))
             reading = self.panes["teleprompter"].running
-            if self.expanded and self.outside_ticks >= 7 and not self.pinned and not editing and not reading:
+            if self.expanded and self.outside_ticks >= 5 and not self.pinned and not editing and not reading:
                 self.set_expanded(False)
 
     def mousePressEvent(self, event):

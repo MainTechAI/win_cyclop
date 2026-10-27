@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from .core import calendar_events, convert_currency, seconds_label, translation_direction
 from .services import MediaWorker, fetch_rates, translate_offline
 from .theme import icon
+from .widgets import ElidedLabel, PanelComboBox, PanelDialog, PanelFileDialog
 
 
 def label(text, secondary=False):
@@ -66,10 +67,12 @@ class MediaPane(Pane):
         self.art.setFixedSize(108, 108)
         self.art.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.art.setPixmap(icon("music", "#555", 80).pixmap(80, 80))
-        self.title = label("Nothing playing")
+        self.title = ElidedLabel("Nothing playing", lines=2)
         self.title.setObjectName("title")
-        self.artist = label("Play media in an app that supports Windows media controls.", True)
-        self.source = label("", True)
+        self.artist = ElidedLabel("Play media in an app that supports Windows media controls.")
+        self.source = ElidedLabel()
+        self.artist.setObjectName("secondary")
+        self.source.setObjectName("secondary")
         detail = QVBoxLayout()
         detail.addWidget(self.title)
         detail.addWidget(self.artist)
@@ -198,9 +201,11 @@ class ShelfPane(Pane):
         self.refresh()
 
     def add_files(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Add files to shelf")
-        if paths:
-            self.model.add_files(paths)
+        dialog = PanelFileDialog(self, "Add files to shelf")
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+        if dialog.exec():
+            self.model.add_files(dialog.selectedFiles())
+        dialog.deleteLater()
 
     def remove(self):
         self.model.remove_files([i.data(Qt.ItemDataRole.UserRole) for i in self.list.selectedItems()])
@@ -276,7 +281,7 @@ class SnippetsPane(Pane):
         self.refresh()
 
     def editor(self, snippet=None):
-        dialog = QDialog(self)
+        dialog = PanelDialog(self)
         dialog.setWindowTitle("Edit snippet" if snippet else "Add snippet")
         dialog.resize(430, 290)
         layout = QFormLayout(dialog)
@@ -288,9 +293,12 @@ class SnippetsPane(Pane):
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addRow(buttons)
+        title.setFocus()
+        value = None
         if dialog.exec() and text.toPlainText().strip():
-            return {"title": title.text().strip() or "Untitled", "text": text.toPlainText()}
-        return None
+            value = {"title": title.text().strip() or "Untitled", "text": text.toPlainText()}
+        dialog.deleteLater()
+        return value
 
     def add(self):
         value = self.editor()
@@ -346,10 +354,12 @@ class CalendarPane(Pane):
             self.timer.stop()
 
     def choose(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Choose calendar", "", "iCalendar (*.ics)")
-        if path:
-            self.model.configure("calendar_path", path)
+        dialog = PanelFileDialog(self, "Choose calendar", "iCalendar (*.ics)")
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if dialog.exec():
+            self.model.configure("calendar_path", dialog.selectedFiles()[0])
             self.refresh()
+        dialog.deleteLater()
 
     def refresh(self):
         path = self.model.config.get("calendar_path")
@@ -455,7 +465,11 @@ class CurrencyPane(Pane):
         self.rates = self.cache.get("rates", {})
         self.message = label("Daily rates from Frankfurter. Fetch rates to begin; amounts stay on your computer.", True)
         self.layout.addWidget(self.message)
-        self.source, self.target = QComboBox(), QComboBox()
+        self.source, self.target = PanelComboBox(), PanelComboBox()
+        self.source.setAccessibleName("Source currency")
+        self.target.setAccessibleName("Target currency")
+        self.source.setMinimumWidth(76)
+        self.target.setMinimumWidth(76)
         self.amount, self.result = QLineEdit("1"), QLineEdit()
         self.amount.setAccessibleName("Source amount")
         self.result.setAccessibleName("Converted amount")
@@ -467,8 +481,7 @@ class CurrencyPane(Pane):
         self.target.currentTextChanged.connect(lambda: self.convert(False))
         self.amount.textEdited.connect(lambda: self.convert(False))
         self.result.textEdited.connect(lambda: self.convert(True))
-        if self.rates:
-            self.populate()
+        self.populate()
 
     def populate(self):
         previous_source = self.source.currentText() or "EUR"
@@ -476,10 +489,16 @@ class CurrencyPane(Pane):
         for control, selection in ((self.source, previous_source), (self.target, previous_target)):
             control.blockSignals(True)
             control.clear()
-            control.addItems(sorted(self.rates))
+            # Currency choices are useful before the first download. Never
+            # invent rates: conversion remains empty until real rates arrive.
+            control.addItems(sorted(self.rates) if self.rates else
+                             ["AUD", "BRL", "CAD", "CHF", "CNY", "DKK", "EUR", "GBP", "INR",
+                              "JPY", "KRW", "NOK", "NZD", "PLN", "SEK", "TRY", "USD", "ZAR"])
             control.setCurrentText(selection)
             control.blockSignals(False)
-        self.message.setText(f'Frankfurter · rates dated {self.cache.get("date", "unknown")} · cached locally')
+        if self.rates:
+            self.message.setText(f'Frankfurter · rates dated {self.cache.get("date", "unknown")} · cached locally')
+        self.result.setPlaceholderText("Fetch rates first" if not self.rates else "Converted amount")
         self.convert(False)
 
     def fetch(self):
@@ -522,7 +541,7 @@ class CurrencyPane(Pane):
 class NotesPane(Pane):
     def __init__(self, model):
         super().__init__(model)
-        self.select = QComboBox()
+        self.select = PanelComboBox()
         self.layout.addLayout(row(self.select, button("+ New", self.new), button("Remove", self.remove)))
         self.text = QPlainTextEdit()
         self.text.setPlaceholderText("A thought worth keeping…")
@@ -672,7 +691,7 @@ class SettingsPane(Pane):
             control.toggled.connect(lambda checked, key=key: model.configure(key, checked))
             content.addWidget(control)
         content.addWidget(label("Display", True))
-        self.screens = QComboBox()
+        self.screens = PanelComboBox()
         self.screens.addItem("Primary display", "")
         for screen in QApplication.screens():
             self.screens.addItem(screen.name(), screen.name())

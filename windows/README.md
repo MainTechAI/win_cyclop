@@ -30,6 +30,8 @@ No administrator privileges are required. Find Cyclop in the notification-area o
 
 ## Portable executable
 
+Download **CyclopWindows.exe** from [Releases](https://github.com/MainTechAI/win_cyclop/releases) to run the standalone build, or download **CyclopWindows-win-x64.zip**, extract it, and run `CyclopWindows/CyclopWindows.exe`. The folder build starts faster because it does not unpack its libraries at every launch. Quit any running copy from the tray menu before updating. Both builds use the same local data directory.
+
 Open the repository's **Actions → Windows build**, choose a successful run, and download **CyclopWindows-win-x64** from Artifacts. Extract the downloaded artifact, then the `CyclopWindows-win-x64.zip` inside it. Run `CyclopWindows.exe` from the extracted `CyclopWindows` directory. Keep the `_internal` directory alongside the executable.
 
 The package includes Python and Qt, so a separate Python install is not needed. The initial build is unsigned; code signing and an installer are not configured. Do not treat a successful build as proof of all desktop integrations: see the smoke checklist below.
@@ -45,8 +47,8 @@ This runs the test suite and creates `dist\CyclopWindows-win-x64.zip`. The stand
 
 ## Interaction
 
-- Hover over the top-center notch for 150 ms to expand. Move away for approximately 350 ms to collapse.
-- Hover over a rail icon for 170 ms, or click it, to change tools.
+- Hover over the top-center notch for approximately 100 ms to expand. Move away for approximately 250 ms to collapse.
+- Hover over a rail icon for 100 ms, or click it, to change tools. Open dialogs and dropdowns suspend hover switching.
 - **Ctrl+Alt+Space** toggles the panel; **Escape** collapses it.
 - The pin holds the panel open; the eye hides the current contents.
 - Typing keeps the panel open while it retains keyboard focus. A running teleprompter also keeps it open.
@@ -109,6 +111,8 @@ cd windows
 ```
 
 The automated suite covers persistence/recovery, clipboard policy, file-reference safety, currency arithmetic, meeting URL checks, calendar recurrence, pane rendering and UI state. It can run offscreen on Linux for fast development. GitHub Actions runs it on Windows, verifies the WinRT imports/buffer projection, builds a portable executable, and checks that the packaged process starts.
+
+Windows CI also runs `tests/test_interactions.py` with the native Windows Qt platform, including native hit-testing to check that dialog fields and dropdowns are above the panel. Publishing a `windows/releases/<version>.md` note on `main` runs the Windows release workflow; it publishes a `windows-v<version>` release only after tests and both executable smoke checks pass. Existing releases are not overwritten.
 
 ### Windows desktop smoke checklist
 
