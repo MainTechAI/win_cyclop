@@ -52,11 +52,23 @@ jobs:
           exit $code
       - name: Verify native Windows media bindings
         run: python scripts/check-winrt.py
-      - name: Test desktop interactions and window stacking
+      - name: Test desktop interactions, window stacking and OCR
         timeout-minutes: 8
         env:
           QT_QPA_PLATFORM: windows
-        run: python -m pytest tests/test_interactions.py -q
+          CYCLOP_HANG_LOG: hang-native.log
+        run: |
+          python -m pytest tests/test_interactions.py "tests/test_features.py::test_windows_ocr_reads_rendered_text" -v -p no:faulthandler
+          $code = $LASTEXITCODE
+          if ($code -ne 0 -and (Test-Path hang-native.log)) {
+            $picked = Get-Content hang-native.log | Where-Object { $_ -match '^(\[FAILED\]|E  )' } | Select-Object -First 9
+            foreach ($line in $picked) {
+              $clean = ($line -replace '[^\x20-\x7E]', '?')
+              if ($clean.Length -gt 300) { $clean = $clean.Substring(0, 300) }
+              Write-Output ("::warning title=test detail::" + $clean.Replace('%', '%25'))
+            }
+          }
+          exit $code
       - name: Build portable application
         run: |
           python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --icon cyclop_windows/assets/cyclop.ico --collect-submodules winrt --collect-data faster_whisper --collect-binaries ctranslate2 --copy-metadata cyclop-windows scripts/launch.py

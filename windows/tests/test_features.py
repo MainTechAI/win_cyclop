@@ -300,13 +300,21 @@ def test_region_selection_crops_the_frozen_screenshot(app):
     assert upscaled.width() > 200  # small regions are enlarged for better recognition
 
 
+def dark_pixels(image):
+    return sum(1 for y in range(0, image.height(), 3) for x in range(0, image.width(), 3)
+               if image.pixelColor(x, y).lightness() < 100)
+
+
 @windows_only
-def test_windows_ocr_reads_rendered_text():
+def test_windows_ocr_reads_rendered_text(app):
     from cyclop_windows.capture import prepare_for_ocr
     from cyclop_windows.services import ocr_languages, ocr_png
     if not ocr_languages():
         pytest.skip("No Windows OCR language installed on this machine")
-    text = ocr_png(prepare_for_ocr(text_image("Cyclop 2026")))
+    image = text_image("Cyclop 2026")
+    if dark_pixels(image) < 20:
+        pytest.skip("This Qt platform has no fonts to draw test text; covered by the native Windows step")
+    text = ocr_png(prepare_for_ocr(image))
     simplified = text.lower().replace("i", "l").replace("|", "l").replace(" ", "")
     assert "cyclop" in simplified and "2026" in simplified, repr(text)
 
