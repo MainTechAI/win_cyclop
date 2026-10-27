@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyclop-windows"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cyclop's notch toolbox, reimplemented for Windows 11"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
@@ -12,23 +12,36 @@ dependencies = [
   "PySide6-Essentials>=6.8,<7",
   "icalendar>=6.1,<8",
   "recurring-ical-events>=3.4,<4",
+  "numpy>=1.26,<3",
+  "psutil>=5.9,<8",
+  "sounddevice>=0.4.6,<0.6",
+  "pycaw>=20240210,<20270000; sys_platform == 'win32'",
+  "comtypes>=1.4,<2; sys_platform == 'win32'",
+  "nvidia-ml-py>=12; sys_platform == 'win32'",
   "winrt-runtime==3.2.1; sys_platform == 'win32'",
   "winrt-Windows.Foundation==3.2.1; sys_platform == 'win32'",
   "winrt-Windows.Foundation.Collections==3.2.1; sys_platform == 'win32'",
   "winrt-Windows.Media==3.2.1; sys_platform == 'win32'",
   "winrt-Windows.Media.Control==3.2.1; sys_platform == 'win32'",
-  "winrt-Windows.Storage.Streams==3.2.1; sys_platform == 'win32'"
+  "winrt-Windows.Storage.Streams==3.2.1; sys_platform == 'win32'",
+  "winrt-Windows.Media.Ocr==3.2.1; sys_platform == 'win32'",
+  "winrt-Windows.Graphics.Imaging==3.2.1; sys_platform == 'win32'",
+  "winrt-Windows.Globalization==3.2.1; sys_platform == 'win32'"
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "pyinstaller>=6.11,<7"]
 translate = ["argostranslate>=1.9,<2"]
+speech = ["faster-whisper>=1.1,<2"]
 
 [project.gui-scripts]
 cyclop-windows = "cyclop_windows.app:main"
 
 [tool.setuptools.packages.find]
 include = ["cyclop_windows*"]
+
+[tool.setuptools.package-data]
+cyclop_windows = ["assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

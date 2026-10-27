@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: windows/pyproject.toml
       - name: Install
         run: |
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev,speech]"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Tests
         env:
@@ -42,7 +42,7 @@ jobs:
         run: python -m pytest tests/test_interactions.py -q
       - name: Build portable application
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --collect-submodules winrt --copy-metadata cyclop-windows scripts/launch.py
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --icon cyclop_windows/assets/cyclop.ico --collect-submodules winrt --collect-data faster_whisper --collect-binaries ctranslate2 --copy-metadata cyclop-windows scripts/launch.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item ..\LICENSE dist\CyclopWindows\LICENSE.txt
           Copy-Item THIRD_PARTY_NOTICES.md dist\CyclopWindows\THIRD_PARTY_NOTICES.md
@@ -67,7 +67,7 @@ jobs:
         run: Compress-Archive -Path dist\CyclopWindows -DestinationPath dist\CyclopWindows-win-x64.zip
       - name: Build standalone executable
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onefile --name CyclopWindows --distpath dist/standalone --collect-submodules winrt --copy-metadata cyclop-windows --add-data "dist/CyclopWindows/licenses:licenses" --add-data "../LICENSE:." --add-data "THIRD_PARTY_NOTICES.md:." scripts/launch.py
+          python -m PyInstaller --noconfirm --clean --windowed --onefile --name CyclopWindows --distpath dist/standalone --icon cyclop_windows/assets/cyclop.ico --collect-submodules winrt --collect-data faster_whisper --collect-binaries ctranslate2 --copy-metadata cyclop-windows --add-data "dist/CyclopWindows/licenses:licenses" --add-data "../LICENSE:." --add-data "THIRD_PARTY_NOTICES.md:." scripts/launch.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Smoke test standalone executable
         run: |

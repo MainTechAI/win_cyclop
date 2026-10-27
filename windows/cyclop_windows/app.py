@@ -15,22 +15,41 @@ from PySide6.QtWidgets import (
     QStackedWidget, QSystemTrayIcon, QTextEdit, QToolButton, QVBoxLayout, QWidget,
 )
 
-from .core import data_directory
+from datetime import datetime
+from urllib.parse import quote_plus
+
+from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
+
+from .capture import RegionSelector, prepare_for_ocr
+from .popups import LookupPopup, SelectionGrabber
+from .services import ocr_png
+from .speech import Transcriber
+from .system import StatsWorker
+from .windows import keep_awake, lock_workstation, open_target, press_key
+
+from .core import HOTKEYS, IRIS_COLORS, cycle, data_directory, parse_command
+from .features import OcrPane, QuickSettings, RecorderPane, SettingsPane
+from .mascot import MascotWindow, app_icon
 from .model import Model
 from .panes import (
     MediaPane, ShelfPane, ClipboardPane, SnippetsPane, CalendarPane, TranslatePane,
-    CurrencyPane, NotesPane, TeleprompterPane, SettingsPane,
+    CurrencyPane, NotesPane, TeleprompterPane,
 )
+from .speech import Recorder
+from .system import Volume
 from .theme import STYLE, icon
 from .windows import HotkeyFilter
 
 TABS = {
     "music": "Music", "shelf": "Shelf", "clipboard": "Clipboard", "snippets": "Snippets",
     "calendar": "Calendar", "translate": "Translate", "notes": "Notes",
-    "currency": "Currency", "teleprompter": "Teleprompter", "settings": "Settings",
+    "currency": "Currency", "teleprompter": "Teleprompter", "ocr": "Text capture",
+    "recorder": "Recorder", "settings": "Settings",
 }
 LEFT = ["music", "shelf", "clipboard", "snippets", "calendar", "translate"]
-RIGHT = ["notes", "currency", "teleprompter", "settings"]
+RIGHT = ["notes", "currency", "teleprompter", "ocr", "recorder", "settings"]
+TALL = {"notes", "teleprompter", "settings", "recorder"}
 
 
 class RailButton(QToolButton):
@@ -67,6 +86,11 @@ class RailButton(QToolButton):
         self.timer.stop()
         super().leaveEvent(event)
 
+    def wheelEvent(self, event):
+        self.timer.stop()
+        self.panel.wheel_cycle(event.angleDelta().y())
+        event.accept()
+
 
 def notch_shape(width, height, expanded=True):
     """Port of Cyclop's MIT-licensed NotchShape.swift (concave shoulders)."""
@@ -86,15 +110,23 @@ def notch_shape(width, height, expanded=True):
 
 
 class Panel(QWidget):
-    def __init__(self, model, start_services=True):
+    geometry_changed = Signal(QRect)
+    quick_requested = Signal(QPoint)
+
+    def __init__(self, model, start_services=True, volume=None, recorder=None):
         super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.model = model
+        self.volume = volume or Volume()
+        self.recorder = recorder or Recorder(self)
         self.setWindowTitle("Cyclop for Windows")
-        self.setWindowIcon(icon("eye", "#ffffff"))
+        self.setWindowIcon(app_icon())
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAcceptDrops(True)
         self.expanded = False
+        self.sticky = False  # opened by click/hotkey: stay open until visited or dismissed
+        self.was_active = False
+        self.wheel_accumulator = 0
         self.pinned = False
         self.private = False
         self.current_tab = "music"
@@ -122,6 +154,12 @@ class Panel(QWidget):
         self.privacy_button.setToolTip("Hide panel contents")
         self.privacy_button.setAccessibleName("Hide panel contents")
         self.privacy_button.toggled.connect(self.set_private)
+        self.quick_button = QToolButton(self)
+        self.quick_button.setIcon(icon("quick"))
+        self.quick_button.setStyleSheet("padding: 3px;")
+        self.quick_button.setToolTip("Quick settings")
+        self.quick_button.setAccessibleName("Quick settings")
+        self.quick_button.clicked.connect(lambda: self.quick_requested.emit(self.quick_button.mapToGlobal(QPoint(self.quick_button.width() // 2, self.quick_button.height() + 4))))
         self.body = QWidget(self)
         self.body.setObjectName("content")
         body_layout = QHBoxLayout(self.body)
@@ -131,11 +169,12 @@ class Panel(QWidget):
         body_layout.addLayout(self.rail(LEFT))
         self.stack = QStackedWidget()
         self.panes = {
-            "music": MediaPane(model, start_services), "shelf": ShelfPane(model),
+            "music": MediaPane(model, start_services, self.volume), "shelf": ShelfPane(model),
             "clipboard": ClipboardPane(model), "snippets": SnippetsPane(model),
             "calendar": CalendarPane(model), "translate": TranslatePane(model),
             "notes": NotesPane(model), "currency": CurrencyPane(model),
-            "teleprompter": TeleprompterPane(model), "settings": SettingsPane(model, TABS),
+            "teleprompter": TeleprompterPane(model), "ocr": OcrPane(model),
+            "recorder": RecorderPane(model, self.recorder), "settings": SettingsPane(model, TABS),
         }
         for pane in self.panes.values():
             self.stack.addWidget(pane)
@@ -160,6 +199,10 @@ class Panel(QWidget):
         self.watcher.start()
         self.escape = QShortcut(QKeySequence("Escape"), self)
         self.escape.activated.connect(lambda: self.set_expanded(False))
+        for sequence, step in (("Ctrl+Tab", 1), ("Ctrl+Shift+Tab", -1), ("Ctrl+Backtab", -1), ("Ctrl+PgDown", 1), ("Ctrl+PgUp", -1)):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.activated.connect(lambda step=step: self.cycle_tab(step))
+        QApplication.instance().focusWindowChanged.connect(self.focus_window_changed)
         QApplication.instance().screenAdded.connect(self.screens_changed)
         QApplication.instance().screenRemoved.connect(self.screens_changed)
         for screen in QApplication.screens():
@@ -187,7 +230,13 @@ class Panel(QWidget):
     def target_rect(self):
         bounds = self.display().availableGeometry()
         width = min(644, bounds.width()) if self.expanded else 192
-        height = (420 if self.current_tab in {"notes", "teleprompter", "settings"} else 264) if self.expanded else 28
+        if self.current_tab in TALL:
+            height = 420
+        elif self.current_tab == "music" and self.model.config["volume_enabled"] and self.volume.available:
+            height = 318
+        else:
+            height = 264
+        height = height if self.expanded else 28
         height = min(height, bounds.height())
         return QRect(bounds.x() + (bounds.width() - width) // 2, bounds.y(), width, height)
 
@@ -213,7 +262,7 @@ class Panel(QWidget):
             return
         old = self.current_tab
         self.current_tab = key
-        self.header.setText(TABS[key].upper())
+        self.header.setText(TABS[key].upper() + ("  ›" if self.model.config["tab_cycling"] else ""))
         self.stack.setCurrentWidget(self.cover if self.private else self.panes[key])
         for name, control in self.buttons.items():
             control.setChecked(name == key)
@@ -222,18 +271,41 @@ class Panel(QWidget):
         if self.expanded and old != key:
             self.animate()
 
-    def set_expanded(self, value, focus=False):
+    def tab_order(self):
+        disabled = self.model.config["disabled_tabs"]
+        return [key for key in LEFT + RIGHT if key not in disabled]
+
+    def cycle_tab(self, step=1):
+        """Move to the next/previous visible tab; past the last one wraps to the first."""
+        if not self.expanded or not self.model.config["tab_cycling"]:
+            return
+        self.select_tab(cycle(self.tab_order(), self.current_tab, step))
+
+    def wheel_cycle(self, delta):
+        self.wheel_accumulator += delta
+        while abs(self.wheel_accumulator) >= 120:
+            step = -1 if self.wheel_accumulator > 0 else 1
+            self.wheel_accumulator += 120 * step
+            self.cycle_tab(step)
+
+    def set_expanded(self, value, focus=False, sticky=None):
+        if value:
+            # Opening by click, tray or hotkey keeps the panel open even though the
+            # pointer is elsewhere (e.g. on the tray icon). Hover-opening is not sticky.
+            self.sticky = bool(focus) if sticky is None else sticky
         if self.expanded == value:
             if value and focus:
                 self.activateWindow()
             return
         self.expanded = value
+        self.was_active = False
         if not value:
             self.panes["teleprompter"].pause()
             self.body.hide()
             self.header.hide()
             self.pin_button.hide()
             self.privacy_button.hide()
+            self.quick_button.hide()
             self.status.hide()
             self.clearFocus()
         else:
@@ -257,7 +329,7 @@ class Panel(QWidget):
         self.animation.start()
 
     def animation_done(self):
-        for widget in (self.body, self.header, self.pin_button, self.privacy_button, self.status):
+        for widget in (self.body, self.header, self.pin_button, self.privacy_button, self.quick_button, self.status):
             widget.setVisible(self.expanded)
         self.update()
 
@@ -277,10 +349,14 @@ class Panel(QWidget):
             for control in self.buttons.values():
                 control.timer.stop()
             return
+        if self.isActiveWindow():
+            self.was_active = True
         inside = self.geometry().contains(QCursor.pos())
         if inside:
             self.outside_ticks = 0
             self.inside_ticks += 1
+            if self.expanded and self.inside_ticks >= 2:
+                self.sticky = False
             if not self.expanded and self.inside_ticks >= 2 and self.model.config["hover_open"]:
                 self.set_expanded(True)
         else:
@@ -288,13 +364,33 @@ class Panel(QWidget):
             self.outside_ticks += 1
             editing = self.isActiveWindow() and isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit))
             reading = self.panes["teleprompter"].running
-            if self.expanded and self.outside_ticks >= 5 and not self.pinned and not editing and not reading:
+            if self.expanded and self.outside_ticks >= 5 and not self.pinned and not self.sticky and not editing and not reading:
                 self.set_expanded(False)
+
+    def focus_window_changed(self, window):
+        # A sticky panel closes when the user clicks into another application.
+        if (window is None and self.expanded and self.sticky and self.was_active and not self.pinned
+                and not QApplication.activeModalWidget() and not QApplication.activePopupWidget()
+                and not self.panes["teleprompter"].running):
+            self.set_expanded(False)
 
     def mousePressEvent(self, event):
         if not self.expanded:
             self.set_expanded(True, focus=True)
+        elif event.button() == Qt.MouseButton.LeftButton and self.header.geometry().contains(event.position().toPoint()):
+            self.cycle_tab(1)
         super().mousePressEvent(event)
+
+    def wheelEvent(self, event):
+        if self.expanded and event.position().y() < 34:
+            self.wheel_cycle(event.angleDelta().y())
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
+    def moveEvent(self, event):
+        self.geometry_changed.emit(self.geometry())
+        super().moveEvent(event)
 
     def dragEnterEvent(self, event):
         if "shelf" not in self.model.config["disabled_tabs"] and event.mimeData().hasUrls() and any(u.isLocalFile() for u in event.mimeData().urls()):
@@ -320,12 +416,14 @@ class Panel(QWidget):
     def resizeEvent(self, event):
         width, height = self.width(), self.height()
         self.header.setGeometry(28, 5, max(120, width - 160), 20)
+        self.quick_button.setGeometry(width - 117, 3, 25, 23)
         self.privacy_button.setGeometry(width - 87, 3, 25, 23)
         self.pin_button.setGeometry(width - 57, 3, 25, 23)
         self.body.setGeometry(26, 34, max(0, width - 52), max(0, height - 60))
         self.status.setGeometry(68, height - 24, max(0, width - 136), 18)
         # Match the input region to the visible silhouette, including during animation.
         self.setMask(QRegion(notch_shape(width, height, self.expanded).toFillPolygon().toPolygon()))
+        self.geometry_changed.emit(self.geometry())
         super().resizeEvent(event)
 
     def paintEvent(self, event):
@@ -335,7 +433,7 @@ class Panel(QWidget):
         painter.setBrush(Qt.GlobalColor.black)
         painter.drawPath(notch_shape(self.width(), self.height(), self.expanded))
         if not self.expanded:
-            icon("eye", "#555", 18).paint(painter, self.width() // 2 - 9, 4, 18, 18)
+            app_icon(IRIS_COLORS[self.model.config["mascot_iris"]]).paint(painter, self.width() // 2 - 9, 5, 18, 18)
 
     def closeEvent(self, event):
         if not self.shutting_down:
@@ -349,6 +447,7 @@ class Panel(QWidget):
         self.watcher.stop()
         self.panes["notes"].flush()
         self.panes["teleprompter"].flush()
+        self.recorder.cancel()
         worker = self.panes["music"].worker
         worker.stop()
         # Keep QThread alive until its bounded WinRT operations finish.
@@ -356,6 +455,346 @@ class Panel(QWidget):
         if worker.isRunning():
             worker.wait()
         self.model.pool.waitForDone()
+
+
+class Cyclop(QObject):
+    """Connects the panel, mascot, tray, global shortcuts and background features."""
+
+    def __init__(self, model, start_services=True):
+        super().__init__()
+        self.model = model
+        self.start_services = start_services
+        self.panel = Panel(model, start_services)
+        self.recorder = self.panel.recorder
+        self.volume = self.panel.volume
+        self.mascot = MascotWindow(model, start_animation=start_services)
+        self.mascot.clicked.connect(self.mascot_clicked)
+        self.mascot.menu_requested.connect(lambda position: self.menu.popup(position))
+        self.panel.geometry_changed.connect(self.mascot.set_anchor)
+        self.mascot.set_anchor(self.panel.geometry())
+        self.quick = QuickSettings(model, {
+            "awake": self.set_awake, "ocr": lambda checked: self.start_ocr(), "voice": lambda checked: self.toggle_voice(),
+            "record": lambda checked: self.toggle_recording(), "private": self.panel.privacy_button.setChecked,
+            "pin": self.panel.pin_button.setChecked, "state": self.quick_state,
+        }, self.volume)
+        self.panel.quick_requested.connect(self.quick.popup)
+        self.awake = False
+        self.voice_active = False
+        self.selector = None
+        self.popup = None
+        self.grabber = SelectionGrabber(model, self)
+        self.grabber.grabbed.connect(self.show_lookup)
+        self.grabber.failed.connect(self.notify)
+        self.lookup_mode = "define"
+        self.recorder.level.connect(lambda level: self.mascot.set_level(level) if self.voice_active else None)
+        self.recorder.finished.connect(self.voice_recorded)
+        self.recorder.failed.connect(lambda error: self.voice_failed(error) if self.voice_active else None)
+        ocr = self.panel.panes["ocr"]
+        ocr.capture_requested.connect(self.start_ocr)
+        ocr.translate_requested.connect(lambda text: self.show_lookup(text, "translate") if text.strip() else None)
+        self.panel.panes["settings"].hotkey_changed.connect(self.register_hotkeys)
+        self.stats = StatsWorker(self)
+        self.stats.sample.connect(self.mascot.set_stats)
+        self.hotkeys = HotkeyFilter()
+        self.hotkey_signature = None
+        self.build_tray()
+        model.config_changed.connect(self.config_changed)
+        self.config_changed()
+
+    # ------------------------------------------------------------ tray and menus
+    def build_tray(self):
+        self.tray = QSystemTrayIcon(app_icon(IRIS_COLORS[self.model.config["mascot_iris"]]), self)
+        self.tray.setToolTip("Cyclop")
+        menu = self.menu = QMenu()
+        menu.addAction("Open / collapse", self.panel.toggle)
+        menu.addAction("Quick settings…", lambda: self.quick.popup(QCursor.pos()))
+        self.awake_action = menu.addAction(icon("awake"), "Keep awake")
+        self.awake_action.setCheckable(True)
+        self.awake_action.toggled.connect(self.set_awake)
+        self.ocr_action = menu.addAction(icon("ocr"), "Capture text from screen", self.start_ocr)
+        self.voice_action = menu.addAction(icon("mic"), "Voice command", self.toggle_voice)
+        menu.addAction("Settings", self.open_settings)
+        menu.addSeparator()
+        hide = menu.addAction("Hide contents")
+        hide.setCheckable(True)
+        hide.toggled.connect(self.panel.privacy_button.setChecked)
+        self.panel.privacy_button.toggled.connect(hide.setChecked)
+        self.capture_action = menu.addAction("Capture clipboard text")
+        self.capture_action.setCheckable(True)
+        self.capture_action.toggled.connect(lambda value: self.model.configure("clipboard_enabled", value))
+        self.mascot_action = menu.addAction("Show Cyclop mascot")
+        self.mascot_action.setCheckable(True)
+        self.mascot_action.toggled.connect(lambda value: self.model.configure("mascot_enabled", value))
+        menu.addSeparator()
+        menu.addAction("Quit Cyclop", self.request_quit)
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self.tray_activated)
+
+    def tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            # Sticky: the pointer is on the taskbar, so hover logic must not close it.
+            self.panel.set_expanded(not self.panel.expanded, focus=True, sticky=True)
+
+    def request_quit(self):
+        self.panel.shutting_down = True
+        QApplication.instance().quit()
+
+    def open_settings(self):
+        self.panel.select_tab("settings")
+        self.panel.set_expanded(True, focus=True, sticky=True)
+
+    def notify(self, text, seconds=3.5):
+        if self.model.config["mascot_enabled"] and self.mascot.isVisible():
+            self.mascot.say(text, seconds)
+        elif self.tray.isVisible():
+            self.tray.showMessage("Cyclop", text, QSystemTrayIcon.MessageIcon.NoIcon, int(seconds * 1000))
+        self.panel.notify(text)
+
+    def quick_state(self):
+        return {"awake": self.awake, "record": self.recorder.recording and not self.voice_active,
+                "private": self.panel.private, "pin": self.panel.pinned}
+
+    # ------------------------------------------------------------ configuration
+    def config_changed(self):
+        config = self.model.config
+        for action, value in ((self.capture_action, config["clipboard_enabled"]), (self.mascot_action, config["mascot_enabled"])):
+            action.blockSignals(True)
+            action.setChecked(bool(value))
+            action.blockSignals(False)
+        self.awake_action.setVisible(config["awake_enabled"])
+        if not config["awake_enabled"] and self.awake:
+            self.set_awake(False)
+        self.voice_action.setVisible(config["voice_enabled"])
+        self.tray.setIcon(app_icon(IRIS_COLORS[config["mascot_iris"]]))
+        self.panel.setWindowIcon(app_icon(IRIS_COLORS[config["mascot_iris"]]))
+        stats = config["mascot_enabled"] and config["stats_enabled"] and bool(config["stats_items"])
+        if stats:
+            self.stats.enabled.set()
+            if self.start_services and not self.stats.isRunning():
+                self.stats.start()
+        else:
+            self.stats.enabled.clear()
+        if not config["voice_enabled"] and self.voice_active:
+            self.voice_active = False
+            self.recorder.cancel()
+            self.mascot.set_state("idle")
+        signature = (tuple(sorted(config["hotkeys"].items())), config["ocr_enabled"], config["lookup_enabled"], config["voice_enabled"])
+        if signature != self.hotkey_signature:
+            self.register_hotkeys()
+        self.panel.update()
+
+    def register_hotkeys(self):
+        config = self.model.config
+        self.hotkey_signature = (tuple(sorted(config["hotkeys"].items())), config["ocr_enabled"], config["lookup_enabled"], config["voice_enabled"])
+        wanted = {
+            "panel": (True, self.hotkey_toggle),
+            "ocr": (config["ocr_enabled"], self.start_ocr),
+            "define": (config["lookup_enabled"], lambda: self.start_lookup("define")),
+            "translate": (config["lookup_enabled"], lambda: self.start_lookup("translate")),
+            "voice": (config["voice_enabled"], self.toggle_voice),
+        }
+        errors = []
+        for name, (enabled, callback) in wanted.items():
+            if enabled:
+                error = self.hotkeys.set(name, config["hotkeys"][name], callback)
+                if error:
+                    errors.append(f"{HOTKEYS[name][0]}: {error}")
+            else:
+                self.hotkeys.remove(name)
+        self.hotkey_errors = errors
+        self.panel.panes["settings"].show_hotkey_errors(errors)
+        self.tray.setToolTip("Cyclop · " + config["hotkeys"]["panel"])
+        return errors
+
+    def hotkey_toggle(self):
+        self.panel.set_expanded(not self.panel.expanded, focus=True, sticky=True)
+
+    # ------------------------------------------------------------ keep awake
+    def set_awake(self, value):
+        value = bool(value) and self.model.config["awake_enabled"]
+        if value == self.awake:
+            return
+        self.awake = value
+        keep_awake(value)
+        self.awake_action.blockSignals(True)
+        self.awake_action.setChecked(value)
+        self.awake_action.blockSignals(False)
+        self.notify("Staying awake — sleep is blocked" if value else "Sleep allowed again")
+
+    # ------------------------------------------------------------ mascot & voice
+    def mascot_clicked(self):
+        if self.model.config["voice_enabled"]:
+            self.toggle_voice()
+        else:
+            self.panel.set_expanded(not self.panel.expanded, focus=True, sticky=True)
+
+    def toggle_voice(self):
+        if self.voice_active:
+            self.recorder.stop()
+            return
+        if not self.model.config["voice_enabled"]:
+            self.notify("Voice commands are off — turn them on in Settings → Features")
+            return
+        if not Transcriber.available():
+            self.notify("Speech recognition isn't installed in this build")
+            return
+        if self.recorder.recording:
+            self.notify("The recorder is busy")
+            return
+        self.voice_active = True
+        self.mascot.set_state("listening")
+        self.mascot.say("Listening…", 8)
+        self.recorder.start(command_mode=True, max_seconds=8)
+        if not self.recorder.recording:
+            self.voice_active = False
+            self.mascot.set_state("idle")
+
+    def voice_failed(self, error):
+        self.voice_active = False
+        self.mascot.set_state("idle")
+        self.notify(error, 5)
+
+    def voice_recorded(self, samples):
+        if not self.voice_active:
+            return
+        self.voice_active = False
+        self.mascot.set_state("thinking")
+        self.mascot.say("Thinking…", 30)
+        size, language = self.model.config["whisper_model"], self.model.config["speech_language"]
+        models = self.model.store.directory / "models"
+
+        def done(text):
+            self.mascot.set_state("idle")
+            self.execute(parse_command(text), text)
+
+        def failed(error):
+            self.mascot.set_state("idle")
+            self.notify(f"Speech recognition failed: {error}", 6)
+        self.model.run_job(lambda: Transcriber.transcribe(samples, models, size, language), done, failed)
+
+    def execute(self, intent, heard=""):
+        """Run an allow-listed action through the Windows API and say what happened."""
+        action = intent.get("action")
+        try:
+            if action == "open":
+                open_target(intent["target"])
+                self.notify(f"Opening {intent['name']}")
+            elif action == "search":
+                QDesktopServices.openUrl(QUrl("https://www.bing.com/search?q=" + quote_plus(intent["query"])))
+                self.notify(f"Searching for {intent['query']}")
+            elif action == "tab":
+                self.panel.select_tab(intent["tab"])
+                self.panel.set_expanded(True, focus=True, sticky=True)
+                self.notify(f"Showing {TABS[intent['tab']]}")
+            elif action == "key":
+                key = intent["key"]
+                press_key(key, 5 if key in ("volume_up", "volume_down") else 1)
+                self.notify({"volume_up": "Louder", "volume_down": "Quieter", "mute": "Mute toggled",
+                             "next": "Next track", "previous": "Previous track", "play": "Play / pause"}[key])
+            elif action == "lock":
+                self.notify("Locking the PC")
+                QTimer.singleShot(400, lock_workstation)
+            elif action == "ocr":
+                QTimer.singleShot(300, self.start_ocr)
+            elif action == "awake":
+                self.set_awake(intent["value"])
+            elif action == "time":
+                self.notify(datetime.now().strftime("It's %H:%M"))
+            elif action == "record":
+                self.panel.select_tab("recorder")
+                self.panel.set_expanded(True, focus=True, sticky=True)
+                if not self.recorder.recording:
+                    self.panel.panes["recorder"].toggle()
+            elif action == "panel":
+                self.panel.set_expanded(bool(intent["value"]), focus=bool(intent["value"]))
+            else:
+                self.notify(f"Didn't catch a command: “{heard.strip()[:60]}”" if heard.strip() else "I didn't hear anything", 5)
+        except Exception as exc:
+            self.mascot.set_state("error")
+            QTimer.singleShot(1500, lambda: self.mascot.set_state("idle"))
+            self.notify(f"Couldn't do that: {exc}", 5)
+
+    def toggle_recording(self):
+        self.panel.select_tab("recorder")
+        self.panel.set_expanded(True, focus=True, sticky=True)
+        self.panel.panes["recorder"].toggle()
+
+    # ------------------------------------------------------------ text capture (image → text)
+    def start_ocr(self):
+        if self.selector is not None:
+            return
+        self.panel.set_expanded(False)
+        self.panel.reposition()
+        mascot_visible = self.mascot.isVisible()
+        self.mascot.hide()
+
+        def show_selector():
+            self.selector = RegionSelector()
+            self.selector.selected.connect(self.recognise)
+            self.selector.cancelled.connect(lambda: self.finish_selection(mascot_visible))
+            self.selector.selected.connect(lambda image: self.finish_selection(mascot_visible))
+            self.selector.show()
+        # Let the panel collapse and the mascot disappear before the freeze-frame.
+        QTimer.singleShot(150, show_selector)
+
+    def finish_selection(self, mascot_visible):
+        self.selector = None
+        if mascot_visible:
+            self.mascot.apply_config()
+
+    def recognise(self, image):
+        pane = self.panel.panes["ocr"]
+        pane.busy()
+        self.mascot.set_state("thinking")
+        png = prepare_for_ocr(image)
+
+        def done(text):
+            self.mascot.set_state("idle")
+            pane.show_result(image, text)
+            if text:
+                self.model.copy(text)
+                self.notify(f"Copied {len(text)} characters")
+            else:
+                self.notify("No text found in that area")
+
+        def failed(error):
+            self.mascot.set_state("idle")
+            pane.show_error(error)
+            self.notify(error, 6)
+        self.model.run_job(lambda: ocr_png(png), done, failed)
+
+    # ------------------------------------------------------------ define / translate selection
+    def start_lookup(self, mode):
+        self.lookup_mode = mode
+        self.grabber.start()
+
+    def show_lookup(self, text, mode=None):
+        if self.popup is not None:
+            self.popup.close()
+        self.popup = LookupPopup(self.model, text, mode or self.lookup_mode)
+        self.popup.closed.connect(lambda: setattr(self, "popup", None))
+        self.popup.place_near_cursor()
+        self.popup.show()
+
+    # ------------------------------------------------------------ lifecycle
+    def show(self):
+        self.tray.show()
+        self.panel.show()
+        self.mascot.apply_config()
+        app = QApplication.instance()
+        app.installNativeEventFilter(self.hotkeys)
+
+    def shutdown(self):
+        self.hotkeys.close()
+        if self.awake:
+            keep_awake(False)
+        self.mascot.shutdown()
+        self.stats.stop()
+        self.stats.wait(5000)
+        if self.popup is not None:
+            self.popup.close()
+        self.panel.shutdown()
+        self.tray.hide()
 
 
 def main():
@@ -368,60 +807,30 @@ def main():
     app.setOrganizationName("MainTechAI")
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(STYLE)
+    app.setWindowIcon(app_icon())
     directory = data_directory()
     directory.mkdir(parents=True, exist_ok=True)
     lock = QLockFile(str(directory / "instance.lock"))
     lock.setStaleLockTime(0)
     if not lock.tryLock(100):
         from PySide6.QtWidgets import QMessageBox
-        QMessageBox.information(None, "Cyclop", "Cyclop is already running. Use the tray icon or Ctrl+Alt+Space.")
+        QMessageBox.information(None, "Cyclop", "Cyclop is already running. Use the tray icon or its shortcut.")
         return
     model = Model(directory)
-    panel = Panel(model)
-    tray = QSystemTrayIcon(icon("eye", "#dddddd"), app)
-    tray.setToolTip("Cyclop · Ctrl+Alt+Space")
-    menu = QMenu()
-    menu.addAction("Open / collapse", panel.toggle)
-    def settings():
-        panel.select_tab("settings")
-        panel.set_expanded(True, focus=True)
-    menu.addAction("Settings", settings)
-    hide = menu.addAction("Hide contents")
-    hide.setCheckable(True)
-    hide.toggled.connect(panel.privacy_button.setChecked)
-    panel.privacy_button.toggled.connect(hide.setChecked)
-    capture = menu.addAction("Capture clipboard text")
-    capture.setCheckable(True)
-    capture.setChecked(bool(model.config["clipboard_enabled"]))
-    capture.toggled.connect(lambda value: model.configure("clipboard_enabled", value))
-    def sync_capture():
-        capture.blockSignals(True)
-        capture.setChecked(bool(model.config["clipboard_enabled"]))
-        capture.blockSignals(False)
-    model.config_changed.connect(sync_capture)
-    menu.addSeparator()
-    def request_quit():
-        panel.shutting_down = True
-        app.quit()
-    menu.addAction("Quit Cyclop", request_quit)
-    tray.setContextMenu(menu)
-    tray.activated.connect(lambda reason: panel.toggle() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
-    tray.show()
-    hotkey = HotkeyFilter(panel.toggle)
-    app.installNativeEventFilter(hotkey)
+    cyclop = Cyclop(model)
+    panel = cyclop.panel
+
     def shutdown():
-        hotkey.close()
-        panel.shutdown()
-        tray.hide()
+        cyclop.shutdown()
         lock.unlock()
     app.aboutToQuit.connect(shutdown)
-    panel.show()
+    cyclop.show()
     if args.expanded or args.smoke_test:
         panel.set_expanded(True, focus=True)
-    if sys.platform == "win32" and not hotkey.registered:
-        tray.showMessage("Cyclop", "Ctrl+Alt+Space is in use. Open Cyclop from this tray icon.")
+    if sys.platform == "win32" and cyclop.hotkey_errors:
+        cyclop.tray.showMessage("Cyclop shortcuts", "\n".join(cyclop.hotkey_errors))
     if model.store.warnings:
-        tray.showMessage("Cyclop recovered saved data", "\n".join(model.store.warnings))
+        cyclop.tray.showMessage("Cyclop recovered saved data", "\n".join(model.store.warnings))
     if args.smoke_test:
         def verify_startup():
             try:
@@ -431,14 +840,22 @@ def main():
                 picture = panel.grab()
                 if picture.isNull() or not panel.body.isVisible():
                     raise RuntimeError("The expanded panel did not render")
+                cyclop.mascot.tick()
+                if model.config["mascot_enabled"] and cyclop.mascot.frame.isNull():
+                    raise RuntimeError("The mascot did not render")
                 report = {
                     "success": True, "platform": sys.platform,
                     "width": panel.width(), "height": panel.height(),
-                    "pane_count": len(panel.panes), "hotkey_registered": hotkey.registered,
+                    "pane_count": len(panel.panes), "hotkey_registered": cyclop.hotkeys.registered,
+                    "hotkeys": {name: cyclop.hotkeys.is_registered(name) for name in HOTKEYS},
+                    "mascot_rendered": not cyclop.mascot.frame.isNull(),
+                    "speech_available": Transcriber.available(),
+                    "volume_available": cyclop.volume.available,
                 }
                 (directory / "startup-check.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
                 picture.save(str(directory / "startup-panel.png"))
-                request_quit()
+                cyclop.mascot.grab().save(str(directory / "startup-mascot.png"))
+                cyclop.request_quit()
             except Exception as exc:
                 (directory / "startup-check.json").write_text(json.dumps({"success": False, "error": str(exc)}), encoding="utf-8")
                 app.exit(1)

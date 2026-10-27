@@ -38,6 +38,14 @@ QMenu::item { padding: 7px 20px; }
 QMenu::item:selected { background: #333; border-radius: 4px; }
 QDialog { background: #101010; }
 QToolTip { color: #eee; background: #222; border: 1px solid #444; }
+QToolButton#tile { background: #1d1e21; border: 1px solid #2a2b2f; border-radius: 8px; padding: 8px 4px; font-size: 11px; }
+QToolButton#tile:hover { background: #26272b; }
+QToolButton#tile:checked { background: #ff4b3e; color: #120604; border-color: #ff4b3e; font-weight: 600; }
+QToolButton#tile:disabled { color: #5a5a5a; }
+QFrame#flyout { background: #141518; border: 1px solid #2c2d31; border-radius: 12px; }
+QProgressBar { background: #1b1b1b; border: 0; border-radius: 3px; height: 6px; text-align: center; }
+QProgressBar::chunk { background: #ff4b3e; border-radius: 3px; }
+QKeySequenceEdit, QKeySequenceEdit QLineEdit { background: #121212; }
 """
 
 PATHS = {
@@ -59,6 +67,15 @@ PATHS = {
     "eye": '<path d="M2 12c4-8 16-8 20 0-4 8-16 8-20 0z"/><circle cx="12" cy="12" r="3"/>',
     "close": '<path d="M6 6l12 12M6 18L18 6"/>',
     "folder": '<path d="M2 6h8l2 3h10v12H2z"/>',
+    "ocr": '<path d="M3 8V4h4M17 4h4v4M21 16v4h-4M7 20H3v-4M8 9h8M12 9v7"/>',
+    "recorder": '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v4M8 22h8"/>',
+    "mic": '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v4"/>',
+    "record": '<circle cx="12" cy="12" r="6" fill="currentColor"/>',
+    "stop": '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>',
+    "awake": '<path d="M4 9h12v6a5 5 0 01-5 5H9a5 5 0 01-5-5zM16 11h2a2 2 0 010 4h-2M8 2c-1 2 1 3 0 5M12 2c-1 2 1 3 0 5"/>',
+    "quick": '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+    "volume": '<path d="M4 9h4l5-4v14l-5-4H4zM16 9a4 4 0 010 6M18.5 6.5a8 8 0 010 11"/>',
+    "define": '<path d="M4 4h6a3 3 0 013 3v13a2 2 0 00-2-2H4zM20 4h-6a3 3 0 00-3 3"/>',
 }
 
 
