@@ -31,12 +31,27 @@ jobs:
           python -m pip install -e ".[dev,speech]"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Tests
+        timeout-minutes: 10
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+          CYCLOP_HANG_LOG: hang.log
+        run: |
+          python -m pytest -v -p no:faulthandler 2>&1 | Tee-Object -FilePath pytest.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            # Surface the end of the output as check annotations (readable without log access).
+            $tail = (Get-Content pytest.log -Tail 60) -join "%0A"
+            Write-Output "::error title=pytest failed::$tail"
+            if (Test-Path hang.log) {
+              $hang = (Get-Content hang.log -Tail 60) -join "%0A"
+              Write-Output "::error title=hung test stack::$hang"
+            }
+          }
+          exit $code
       - name: Verify native Windows media bindings
         run: python scripts/check-winrt.py
       - name: Test desktop interactions and window stacking
+        timeout-minutes: 8
         env:
           QT_QPA_PLATFORM: windows
         run: python -m pytest tests/test_interactions.py -q
