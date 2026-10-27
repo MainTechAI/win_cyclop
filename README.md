@@ -46,17 +46,15 @@ Scan target: `windows-v0.1.0`. Results refer to these exact file hashes.
 
 | File / report | Status | Malicious | Suspicious | Undetected | Harmless | Other* | Analysis time |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| [CyclopWindows.exe](https://www.virustotal.com/gui/file/fedd8cd0150ec333824a321e6e056923f890c814b4f510c4cfb0b909267206ef) | Not completed | — | — | — | — | — | — |
-| [CyclopWindows-win-x64.zip](https://www.virustotal.com/gui/file/bf3e07832498ca491073ccffe7781e8df0fa48d424f55f86f78fd081a079751a) | Not completed | — | — | — | — | — | — |
+| [CyclopWindows.exe](https://www.virustotal.com/gui/file/fedd8cd0150ec333824a321e6e056923f890c814b4f510c4cfb0b909267206ef) | Completed | 2 | 0 | 66 | 0 | 7 | 2026-10-27 18:26 UTC |
+| [CyclopWindows-win-x64.zip](https://www.virustotal.com/gui/file/bf3e07832498ca491073ccffe7781e8df0fa48d424f55f86f78fd081a079751a) | Completed | 0 | 0 | 66 | 0 | 9 | 2026-10-27 18:28 UTC |
 
 *Other includes timeouts, failures and unsupported file types. Undetected means no detection; it is not a safety guarantee.
 
 SHA-256:
 
 - `CyclopWindows.exe`: `fedd8cd0150ec333824a321e6e056923f890c814b4f510c4cfb0b909267206ef`
-  - Unexpected VirusTotal upload URL
 - `CyclopWindows-win-x64.zip`: `bf3e07832498ca491073ccffe7781e8df0fa48d424f55f86f78fd081a079751a`
-  - Unexpected VirusTotal upload URL
 
 Reports may change as engines update. Known hashes reuse their existing report; the table shows that report’s analysis time.
 <!-- virustotal:end -->
