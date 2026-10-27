@@ -1,0 +1,47 @@
+name: Windows release
+
+on:
+  push:
+    branches: [main]
+    paths: ['windows/releases/*.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/windows.yml
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: CyclopWindows-win-x64
+          path: release-assets
+      - name: Publish tested Windows release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(python -c 'import tomllib; print(tomllib.load(open("windows/pyproject.toml", "rb"))["project"]["version"])')
+          tag="windows-v$version"
+          notes="windows/releases/$version.md"
+          test -f "$notes"
+          cp release-assets/standalone/CyclopWindows.exe release-assets/CyclopWindows.exe
+          (cd release-assets && sha256sum CyclopWindows.exe CyclopWindows-win-x64.zip > SHA256SUMS.txt)
+          # Upload everything while hidden; only publish after all uploads succeed.
+          # Existing tags/releases are never overwritten.
+          gh release create "$tag" --target "$GITHUB_SHA" --draft \
+            --title "Cyclop for Windows $version" --notes-file "$notes" \
+            release-assets/CyclopWindows.exe release-assets/CyclopWindows-win-x64.zip release-assets/SHA256SUMS.txt
+          gh release edit "$tag" --draft=false --latest
