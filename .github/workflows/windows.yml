@@ -40,8 +40,6 @@ jobs:
           $code = $LASTEXITCODE
           if ($code -ne 0) {
             # Surface the end of the output as check annotations (readable without log access).
-            $short = (python -m pytest --lf --tb=line -q -p no:faulthandler 2>&1 | Select-Object -Last 25) -join "%0A"
-            Write-Output "::error title=pytest failures::$short"
             if (Test-Path hang.log) {
               $picked = Get-Content hang.log | Where-Object { $_ -match '^(\[FAILED\]|E  )' } | Select-Object -First 9
               foreach ($line in $picked) {
