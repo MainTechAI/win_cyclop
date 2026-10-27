@@ -2,54 +2,17 @@
 
 A native Qt desktop adaptation of [akalikbergenov/cyclop](https://github.com/akalikbergenov/cyclop). A small black notch at the top of your display unfolds into a toolbox when you hover over it. The silhouette, black surfaces, typography hierarchy and two icon rails follow the original MIT-licensed design.
 
-**Version 0.1.0 is an initial Windows port, not full macOS feature parity.** It uses Python 3.12, PySide6 and Windows Runtime media APIs. It does not use Electron or a browser window. Its footprint will be larger than the original Swift app.
+**Version 0.2 adds features of its own but is not full macOS feature parity.** It uses Python 3.12, PySide6 and Windows Runtime APIs, bundled into the release executable. It does not use Electron or a browser window. Its footprint will be larger than the original Swift app.
 
-## Run on Windows 11
+## Install
 
-1. Install **Python 3.12 x64** from [python.org](https://www.python.org/downloads/windows/), with the Python Launcher enabled.
-2. Clone or download this repository.
-3. Open the `windows` folder and double-click **`run.cmd`**.
+Download **[CyclopWindows.exe](https://github.com/MainTechAI/win_cyclop/releases/latest)** from the latest release and run it. No Python, installer or administrator rights are needed: Python, Qt and the speech engine are bundled.
 
-The launcher creates an isolated `.venv`, installs dependencies, and starts the app. Dependency installation needs internet access. Subsequent launches can avoid the install step with:
-
-```powershell
-cd windows
-.\.venv\Scripts\python.exe -m cyclop_windows
-```
-
-Voice commands and transcription need the optional speech package from source (the portable builds include it):
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[speech]"
-```
-
-For a manual first installation:
-
-```powershell
-cd windows
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\python.exe -m cyclop_windows
-```
-
-No administrator privileges are required. Find Cyclop in the notification-area overflow if its tray icon is hidden.
-
-## Portable executable
-
-Download **CyclopWindows.exe** from [Releases](https://github.com/MainTechAI/win_cyclop/releases) to run the standalone build, or download **CyclopWindows-win-x64.zip**, extract it, and run `CyclopWindows/CyclopWindows.exe`. The folder build starts faster because it does not unpack its libraries at every launch. Quit any running copy from the tray menu before updating. Both builds use the same local data directory.
-
-Open the repository's **Actions → Windows build**, choose a successful run, and download **CyclopWindows-win-x64** from Artifacts. Extract the downloaded artifact, then the `CyclopWindows-win-x64.zip` inside it. Run `CyclopWindows.exe` from the extracted `CyclopWindows` directory. Keep the `_internal` directory alongside the executable.
-
-The package includes Python and Qt, so a separate Python install is not needed. The initial build is unsigned; code signing and an installer are not configured. Do not treat a successful build as proof of all desktop integrations: see the smoke checklist below.
-
-To build locally:
-
-```powershell
-cd windows
-powershell -File .\scripts\build.ps1
-```
-
-This runs the test suite and creates `dist\CyclopWindows-win-x64.zip`. The standard portable build does **not** include Argos Translate; use the source installation for offline translation.
+- Windows may show **"Windows protected your PC"** because the build is unsigned. Choose **More info → Run anyway**.
+- For faster start-up, download **CyclopWindows-win-x64.zip** instead, extract it and run `CyclopWindows\CyclopWindows.exe`, keeping the `_internal` folder alongside it. The single `.exe` unpacks its libraries at every launch, so it starts more slowly.
+- To update, quit Cyclop from its tray menu, then run the new download. Both builds use the same data folder, so notes, snippets and settings are kept.
+- If the tray icon is hidden, find Cyclop in the notification-area overflow (^).
+- To start Cyclop at sign-in, put a shortcut to the executable in your Startup folder (Win+R → `shell:startup`).
 
 ## Interaction
 
@@ -114,7 +77,7 @@ Not implemented: the upstream keyboard-cleaning lock, per-section privacy rules,
 
 ## Translation setup
 
-From a **source installation**, run:
+Offline translation of whole texts needs a [source installation](#run-from-source-developers). Then run:
 
 ```powershell
 cd windows
@@ -144,6 +107,33 @@ Data directory: `%LOCALAPPDATA%\CyclopWindows`.
 - There is no analytics, credential collection, automatic calendar upload, or arbitrary command execution from copied text or speech.
 
 Set `CYCLOP_DATA_DIR` to an alternate directory for testing. Do not commit that directory to Git.
+
+## Run from source (developers)
+
+Only needed to change the code. Install **Python 3.12 x64** from [python.org](https://www.python.org/downloads/windows/) with the Python Launcher, clone the repository, then double-click `windows\run.cmd`. It creates a `.venv`, installs dependencies and starts the app. Later launches can skip the install step:
+
+```powershell
+cd windows
+.\.venv\Scripts\python.exe -m cyclop_windows
+```
+
+Manual setup, including the optional speech engine (voice commands and transcription):
+
+```powershell
+cd windows
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[speech]"
+.\.venv\Scripts\python.exe -m cyclop_windows
+```
+
+To build the executables locally (runs the tests first and creates `dist\CyclopWindows-win-x64.zip`):
+
+```powershell
+cd windows
+powershell -File .\scripts\build.ps1
+```
+
+Every pull request also builds both executables in **Actions → Windows build**; download **CyclopWindows-win-x64** from a run's Artifacts to test a change before release. The builds are unsigned and do not include Argos Translate (see Translation setup).
 
 ## Development and testing
 
