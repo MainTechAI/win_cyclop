@@ -311,9 +311,11 @@ def test_windows_ocr_reads_rendered_text(app):
     from cyclop_windows.services import ocr_languages, ocr_png
     if not ocr_languages():
         pytest.skip("No Windows OCR language installed on this machine")
+    from PySide6.QtGui import QGuiApplication
+    if QGuiApplication.platformName() != "windows":
+        pytest.skip("Needs real Windows fonts to draw test text; runs in the native Windows step")
     image = text_image("Cyclop 2026")
-    if dark_pixels(image) < 20:
-        pytest.skip("This Qt platform has no fonts to draw test text; covered by the native Windows step")
+    assert dark_pixels(image) >= 20
     text = ocr_png(prepare_for_ocr(image))
     simplified = text.lower().replace("i", "l").replace("|", "l").replace(" ", "")
     assert "cyclop" in simplified and "2026" in simplified, repr(text)
