@@ -1,6 +1,6 @@
 """Widgets that fit inside the notch and work above its topmost window."""
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QTextLayout
+from PySide6.QtGui import QTextLayout, QTextOption
 from PySide6.QtWidgets import QComboBox, QDialog, QFileDialog, QLabel, QSizePolicy
 
 
@@ -29,6 +29,10 @@ class ElidedLabel(QLabel):
         text = " ".join(self.full_text.split())
         width = max(1, self.contentsRect().width())
         layout = QTextLayout(text, self.font())
+        option = QTextOption()
+        # Long titles without spaces (e.g. "a_file_name_like_this") must still wrap.
+        option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        layout.setTextOption(option)
         layout.beginLayout()
         rendered = []
         for index in range(self.lines):

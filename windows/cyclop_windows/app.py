@@ -514,6 +514,11 @@ class Cyclop(QObject):
         self.panel.panes["settings"].hotkey_changed.connect(self.register_hotkeys)
         self.stats = StatsWorker(self)
         self.stats.sample.connect(self.mascot.set_stats)
+        # Cyclop reacts to what you do: it gulps copied things and bobs to music.
+        QApplication.clipboard().dataChanged.connect(self.clipboard_changed)
+        media = self.panel.panes["music"].worker
+        media.state.connect(self.mascot.set_media)
+        media.background.set()
         # Opt-in webcam gaze, calibrated continuously from mouse movement.
         self.calibrator = GazeCalibrator()
         self.tracker = None
@@ -639,6 +644,10 @@ class Cyclop(QObject):
 
     def hotkey_toggle(self):
         self.panel.set_expanded(not self.panel.expanded, focus=True, sticky=True)
+
+    def clipboard_changed(self):
+        if not self.model.suppress_capture and self.model.config["mascot_enabled"]:
+            self.mascot.gulp()
 
     # ------------------------------------------------------------ webcam gaze
     def camera_wanted(self):

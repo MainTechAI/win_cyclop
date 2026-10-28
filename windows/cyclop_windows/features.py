@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QPlainTextEdit, QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 
-from .core import HOTKEYS, IRIS_COLORS, STAT_KEYS, parse_hotkey
+from .core import HOTKEYS, IRIS_COLORS, LIVELINESS_LEVELS, MASCOT_SIZES, STAT_KEYS, parse_hotkey
 from .panes import Pane, button, label, row
 from .speech import MODEL_SIZES, Transcriber, read_wav, recording_path, write_wav
 from .theme import icon
@@ -591,6 +591,21 @@ class SettingsPane(Pane):
         iris.setCurrentText(model.config["mascot_iris"])
         iris.currentTextChanged.connect(lambda value: model.configure("mascot_iris", value))
         self.content.addLayout(row(label("Eye colour", True), iris, None))
+        size = PanelComboBox()
+        size.addItems(list(MASCOT_SIZES))
+        size.setCurrentText(model.config["mascot_size"])
+        size.setAccessibleName("Cyclop size")
+        size.currentTextChanged.connect(lambda value: model.configure("mascot_size", value))
+        liveliness = PanelComboBox()
+        liveliness.addItems(list(LIVELINESS_LEVELS))
+        liveliness.setCurrentText(model.config["mascot_liveliness"])
+        liveliness.setAccessibleName("How lively Cyclop is")
+        liveliness.setToolTip("Calm: occasional antics · Lively: plays when you pause · Playful: hardly sits still")
+        liveliness.currentTextChanged.connect(lambda value: model.configure("mascot_liveliness", value))
+        self.content.addLayout(row(label("Size", True), size, label("Liveliness", True), liveliness, None))
+        self.check("Peek out now and then while tucked away", "mascot_peek")
+        self.check("Glance at windows you switch to and watch the text cursor", "mascot_watch_windows")
+        self.check("Show red sonar marks where Cyclop looks on the screen", "mascot_marks")
         self.check("Look where I look, using the webcam (opt-in; video stays on this PC)", "camera_follow")
         camera = QSpinBox()
         camera.setRange(0, 9)

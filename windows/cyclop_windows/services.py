@@ -8,6 +8,7 @@ from pathlib import Path
 import queue
 import sys
 import threading
+import time
 from urllib.request import Request, urlopen
 
 from PySide6.QtCore import QObject, QRunnable, QThread, Signal
@@ -79,6 +80,8 @@ class MediaWorker(QThread):
         self.commands = queue.Queue(maxsize=20)
         self.stop_event = threading.Event()
         self.enabled = threading.Event()
+        self.background = threading.Event()
+        self.last_background = 0.0
         self.enabled.set()
         self.last_art_key = None
         self.art = b""
@@ -114,8 +117,12 @@ class MediaWorker(QThread):
         manager = await asyncio.wait_for(Manager.request_async(), 5)
         while not self.stop_event.is_set():
             if not self.enabled.is_set():
-                await asyncio.sleep(.25)
-                continue
+                # Music tab closed: only a light check every few seconds, and only
+                # while something (Cyclop bobbing to the music) wants to know.
+                if not self.background.is_set() or time.monotonic() - self.last_background < 3.0:
+                    await asyncio.sleep(.25)
+                    continue
+                self.last_background = time.monotonic()
             try:
                 session = manager.get_current_session()
                 if session is None:
