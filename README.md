@@ -28,7 +28,7 @@ Prefer faster start-up? Download **CyclopWindows-win-x64.zip** from the same rel
 - **Voice commands and recording** with offline Whisper transcription (English and Russian).
 - **Quick settings** with Keep awake and volume, plus app and output volume sliders for whatever is playing.
 - Media controls with artwork, a file shelf with drag-and-drop, opt-in clipboard history, snippets, calendar (`.ics`), notes, teleprompter and currency conversion.
-- Tabs cycle in a loop (Ctrl+Tab, mouse wheel), **Ctrl+Alt+Space** opens the panel, and every feature and shortcut can be switched off or changed in Settings.
+- Arrange the tabs as you like (drag to reorder, move between the left and right rails, hide the ones you don't use); they cycle in a loop with Ctrl+Tab or the mouse wheel. **Ctrl+Alt+Space** opens the panel, and every feature and shortcut can be switched off or changed in Settings, which also shows the installed version.
 
 Full details, shortcuts, privacy notes and the developer guide are in **[windows/README.md](windows/README.md)**.
 

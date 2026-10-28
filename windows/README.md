@@ -19,6 +19,7 @@ Download **[CyclopWindows.exe](https://github.com/MainTechAI/win_cyclop/releases
 - Hover over the top-center notch for approximately 100 ms to expand. Move away for approximately 250 ms to collapse.
 - Hover over a rail icon for 100 ms, or click it, to change tools. Open dialogs and dropdowns suspend hover switching.
 - **Ctrl+Alt+Space** toggles the panel; **Escape** collapses it. Opening from the tray icon, the notch, Cyclop or a shortcut keeps the panel open until you visit it and leave, click into another app, or press Escape.
+- **Rearrange the tabs** in **Settings → Panel tabs**: drag a tab (or use Move up / Move down) to change its position, move it above or below the divider to put it on the left or right rail, and untick it to hide it. **Reset order** restores the default. Settings itself always stays at the bottom of the right rail.
 - **Tabs cycle in a loop**: Ctrl+Tab / Ctrl+Shift+Tab (or Ctrl+PgDown / PgUp), the mouse wheel over either icon rail or the title, or a click on the title (`MUSIC ›`) moves to the next tab; past the last tab it wraps to the first.
 - The quick-settings button (four squares) opens a Windows 11-style flyout with **Keep awake**, **Text capture**, **Voice**, **Record**, **Hide contents**, **Keep open** tiles and an output-volume slider.
 - The pin holds the panel open; the eye hides the current contents.
@@ -73,7 +74,7 @@ Voice commands run offline with Whisper and only perform allow-listed actions th
 | Teleprompter | Editable script, start/pause/reset, speed in pixels per second | Scrolls near the top-center camera position. |
 | Text capture | Capture area button and Ctrl+Shift+X; preview, editable result, Copy, Translate | Windows.Media.Ocr, offline. Recognises the OCR languages installed in Windows (Settings → Time & language). |
 | Recorder | Record the default microphone to WAV, play, move to Recycle Bin, offline Whisper transcription saved as `.txt` beside the recording | Speech model (tiny/base/small) is downloaded on first transcription. |
-| Settings | Panel, mascot, stats, feature toggles, speech model/language, editable shortcuts, tab visibility, monitor, data folder | One panel on a selected monitor, not one on every monitor. |
+| Settings | Panel, mascot, stats, feature toggles, speech model/language, editable shortcuts, tab order and visibility, monitor, data folder; the installed version with links to its release notes and the latest release is shown at the bottom | One panel on a selected monitor, not one on every monitor. |
 
 Not implemented: a keyboard-cleaning lock, per-section privacy rules, a screen-capture folder watcher, cloud calendar authentication, mirrored panels across monitors, automatic updates, a Windows installer and code signing. Hidden tabs stop their active services. Removing/hiding the shelf does not remove captured screenshots from disk.
 
