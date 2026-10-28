@@ -231,19 +231,19 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for runtime dependency lice
 <!-- virustotal:start -->
 ## VirusTotal scans
 
-Scan target: `windows-v0.2.5`. Results refer to these exact file hashes.
+Scan target: `windows-v0.3.0`. Results refer to these exact file hashes.
 
 | File / report | Status | Malicious | Suspicious | Undetected | Harmless | Other* | Analysis time |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| [CyclopWindows.exe](https://www.virustotal.com/gui/file/695cd8bcd4674214e328cacf282bf0a9f4a6172706349c6b4f30ddbc38cd4f63) | Completed | 1 | 0 | 61 | 0 | 13 | 2026-10-28 12:35 UTC |
-| [CyclopWindows-win-x64.zip](https://www.virustotal.com/gui/file/89bdb4527e6e926afbbd423d627a3369d1638f1cc2af3652df6d3fc5bc3cb63a) | Completed | 1 | 0 | 63 | 0 | 11 | 2026-10-28 12:39 UTC |
+| [CyclopWindows.exe](https://www.virustotal.com/gui/file/8bb9a875367d315a9c9cbedaa36ca095804bf4eabdee78ee8f5e7ed948d6f633) | Completed | 2 | 0 | 65 | 0 | 8 | 2026-10-28 13:44 UTC |
+| [CyclopWindows-win-x64.zip](https://www.virustotal.com/gui/file/39eef5809ec69e37e627ce7c159b1fe92865dc6018de8dde28c50ab53ec8c7f6) | Completed | 1 | 0 | 59 | 0 | 15 | 2026-10-28 13:47 UTC |
 
 *Other includes timeouts, failures and unsupported file types. Undetected means no detection; it is not a safety guarantee.
 
 SHA-256:
 
-- `CyclopWindows.exe`: `695cd8bcd4674214e328cacf282bf0a9f4a6172706349c6b4f30ddbc38cd4f63`
-- `CyclopWindows-win-x64.zip`: `89bdb4527e6e926afbbd423d627a3369d1638f1cc2af3652df6d3fc5bc3cb63a`
+- `CyclopWindows.exe`: `8bb9a875367d315a9c9cbedaa36ca095804bf4eabdee78ee8f5e7ed948d6f633`
+- `CyclopWindows-win-x64.zip`: `39eef5809ec69e37e627ce7c159b1fe92865dc6018de8dde28c50ab53ec8c7f6`
 
 Reports may change as engines update. Known hashes reuse their existing report; the table shows that report’s analysis time.
 <!-- virustotal:end -->
