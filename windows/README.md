@@ -31,15 +31,45 @@ Download **[CyclopWindows.exe](https://github.com/MainTechAI/win_cyclop/releases
 
 ## Cyclop mascot
 
-A 3D floating eye orb sits beside the notch (red by default; other eye colours in Settings). It is ray-traced per pixel: a glossy sphere with key and fill lights, studio reflections, a rim light, a glowing fibred iris that looks around, follows the pointer and blinks, and eyelids that close over it. After an idle period (8 s by default) it slides up completely above the screen edge, leaving the stats pill (with a red eye dot) or, with stats off, a slim glowing red handle at the top edge; hover it to bring Cyclop back.
+A 3D floating eye orb sits beside the notch (red by default; other colours and three sizes in Settings). It is ray-traced per pixel: a glossy sphere with key and fill lights, studio reflections, a rim light, a glowing fibred iris, and eyelids that close over it. It stays out for 30 seconds after you last interact with it, then slides fully above the screen edge, leaving the stats pill (with a red eye dot) or a slim red handle; hover it to bring Cyclop back. While tucked away it **peeks out** now and then, looks around with a sonar ping, and tucks itself back.
 
-- It **follows the mouse pointer** anywhere on the screen and **reads along** (left to right) while you type.
-- It is alive: it wakes up with a slide-in and a double blink, breathes and floats, tilts its head, hops, leans in to inspect where the pointer stops, looks around while **scanning with red sonar** (pulses and a radar sweep), **hunts** spots on the screen, **startles** when the pointer darts at it, gets **dizzy** if you circle the pointer around it, gets **annoyed** at rapid clicks, bounces when clicked, shakes on errors, and **yawns and falls asleep** (with floating z's) when left alone.
-- **Look where I look** (opt-in, off by default): with the webcam, Cyclop finds your face and looks at you, and learns where on the screen you are looking. Calibration is automatic: whenever you move the mouse you are looking at the pointer, so each movement trains the estimate (a small model that keeps adapting). Expect roughly region-level accuracy that improves with use; until it is calibrated, Cyclop looks at your face. The camera runs only while the option is on and Cyclop is not tucked away; frames are processed on this PC and never saved or sent. **Reset calibration** is in Settings. If another app is using the camera, Cyclop says so and stays mouse-only.
-- **Text capture** shows a red sonar sweep over the selected area while Cyclop stares at it and reads.
-- **Click** Cyclop to give a voice command (when voice commands are on) or to open/close the panel. **Right-click** for the tray menu.
-- **System stats** (on by default; turn off in Settings): CPU, RAM, GPU and temperature appear under Cyclop as coloured numbers and stay visible when it tucks away — green, yellow at 50/60, red at 80. Hover for details. GPU uses the Windows 3D-engine counter (any GPU) with NVIDIA NVML as fallback; temperature uses ACPI thermal zones or the NVIDIA GPU sensor. Some PCs expose no temperature to normal apps; then it shows `Temp –`.
-- The `.exe`, tray and window icons are a flat 2D version of the same eye.
+**What it watches**, in order of priority: an area it is reading (text capture), the mouse pointer while you move it, the **text cursor** while you type (or it reads along when an app hides its cursor), a **window you switch to**, where you look and your face (opt-in webcam), and otherwise its own idle life.
+
+**Idle life.** When the mouse rests for a moment (2.5 s by default), Cyclop plays short acts, never the same one twice in a row:
+
+| Act | What you see |
+|---|---|
+| Patrol | Looks at three or four parts of the screen in turn, pinging red sonar and sweeping its radar |
+| Hunt | Stares and squints at a spot, leaves a red sonar mark there, then pounces |
+| Peer | Leans in (grows), tilts its head and looks at the pointer with a big pupil, then a slow, curious blink |
+| Double take | Looks away, then snaps back to the pointer with a jolt |
+| Nod / head shake | Yes and no |
+| Roll | Rolls its eye all the way round |
+| Stretch | Stretches and squashes with its lids squeezed |
+| Spin | Spins its iris and glows, thinking |
+| Yawn / doze | When it has been left alone for a while (or late at night): yawns, dozes with droopy lids and floating z's, jolts awake |
+
+Its **energy** runs down while you are away and recovers when you use the PC, so it is playful while you work and sleepy after a break or late at night. **Liveliness** in Settings (Calm, Lively, Playful) sets how often it plays.
+
+**Reactions:**
+
+- **Copy something** and it gulps it down.
+- **Play music** (any app with Windows media controls) and it bobs and sways along.
+- **Heavy CPU or a hot PC**: it breathes fast, trembles and glows.
+- **Pointer darts at it**: it startles.
+- **Shake the mouse back and forth near it** (or circle around it): it gets dizzy.
+- **Rest the pointer on it**: it giggles.
+- **Click it 4 times quickly**: it gets annoyed.
+- **Your face comes back on camera**: it greets you.
+- **Text capture**: a red sonar sweep runs over the selected area while it stares there and reads.
+
+**Look where I look** (opt-in, off by default): with the webcam, Cyclop finds your face and looks at you, and learns where on the screen you are looking. Calibration is automatic: whenever you move the mouse you are looking at the pointer, so each movement trains the estimate (a small model that keeps adapting). Expect roughly region-level accuracy that improves with use; until it is calibrated, Cyclop looks at your face. The camera runs only while the option is on and Cyclop is not tucked away; frames are processed on this PC and never saved or sent. **Reset calibration** is in Settings. If another app is using the camera, Cyclop says so and stays mouse-only.
+
+**Click** Cyclop to give a voice command (when voice commands are on) or to open/close the panel. **Right-click** for the tray menu.
+
+**System stats** (on by default; turn off in Settings): CPU, RAM, GPU and temperature appear under Cyclop as coloured numbers (green, yellow at 50/60, red at 80) and stay visible when it tucks away. Hover for details. GPU uses the Windows 3D-engine counter (any GPU) with NVIDIA NVML as fallback; temperature uses ACPI thermal zones or the NVIDIA GPU sensor. Some PCs expose no temperature to normal apps; then it shows `Temp –`.
+
+**Settings → Cyclop mascot:** show/hide, slide-away delay, follow the pointer, eye colour, size, liveliness, peeking, glancing at windows and the text cursor, and red sonar marks on the screen. The `.exe`, tray and window icons are a flat 2D version of the same eye.
 
 ## Shortcuts
 
@@ -106,6 +136,7 @@ Data directory: `%LOCALAPPDATA%\CyclopWindows`.
 - Text capture keeps the frozen screenshot in memory only; recognition is local.
 - Define/translate read your selection with a synthetic Ctrl+C and then restore the previous clipboard; that copy is not added to clipboard history.
 - Keep awake blocks sleep and screen-off only while it is on and Cyclop is running.
+- To glance at windows you switch to and at the text cursor, Cyclop reads only the active window's position and the caret position from Windows (no window titles, contents or keystrokes), and only while that option is on.
 - "Look where I look" is off by default. When on, the webcam is opened only while Cyclop is visible (not tucked away) and released otherwise; the camera light shows when it is in use. Frames are analysed in memory with the bundled YuNet face detector; no image, face data or calibration is written to disk or sent anywhere, and calibration is discarded when Cyclop exits. Source installs download the 232 KB detector once from the OpenCV model zoo and verify its SHA-256.
 - Translation installation and Python dependency installation use their respective package servers.
 - There is no analytics, credential collection, automatic calendar upload, or arbitrary command execution from copied text or speech.

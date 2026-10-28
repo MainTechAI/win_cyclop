@@ -325,9 +325,9 @@ def test_mascot_is_lively_and_scans_with_sonar(app, tmp_path):
         picture = mascot.grab().toImage()
         assert not picture.isNull()
         mascot.set_state("idle")
-        mascot.choose_behaviour(__import__("time").monotonic())
-        assert mascot.behaviour in {"look_around", "tilt", "hop", "sonar", "squint"}
-        mascot.last_pointer_move -= 1000
+        now = __import__("time").monotonic()
+        mascot.last_pointer_move = mascot.last_typing = now - 1000
+        mascot.engine.energy = 0.0
         assert mascot.sleepy
         mascot.wake()
         assert not mascot.sleepy

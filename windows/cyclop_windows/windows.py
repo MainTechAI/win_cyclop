@@ -299,3 +299,49 @@ def last_input_tick() -> int:
     if user32.GetLastInputInfo(ctypes.byref(info)):
         return int(info.dwTime)
     return 0
+
+
+class _GuiThreadInfo(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD), ("hwndActive", wintypes.HWND),
+                ("hwndFocus", wintypes.HWND), ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
+                ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND), ("rcCaret", wintypes.RECT)]
+
+
+def foreground_window():
+    """(handle, (left, top, right, bottom) in physical pixels, process id) of the active window, or None."""
+    if sys.platform != "win32":
+        return None
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    handle = user32.GetForegroundWindow()
+    if not handle:
+        return None
+    rect = wintypes.RECT()
+    if not user32.GetWindowRect(handle, ctypes.byref(rect)):
+        return None
+    pid = wintypes.DWORD(0)
+    user32.GetWindowThreadProcessId(handle, ctypes.byref(pid))
+    return int(handle), (rect.left, rect.top, rect.right, rect.bottom), int(pid.value)
+
+
+def caret_position():
+    """Screen position (physical pixels) of the text cursor in the active app, if it exposes one.
+
+    Classic Win32 text boxes (Notepad, Office, many dialogs) do; browsers and some
+    modern apps draw their own caret and return nothing.
+    """
+    if sys.platform != "win32":
+        return None
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetGUIThreadInfo.argtypes = [wintypes.DWORD, ctypes.POINTER(_GuiThreadInfo)]
+    user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
+    info = _GuiThreadInfo()
+    info.cbSize = ctypes.sizeof(_GuiThreadInfo)
+    if not user32.GetGUIThreadInfo(0, ctypes.byref(info)) or not info.hwndCaret:
+        return None
+    point = wintypes.POINT(info.rcCaret.left, info.rcCaret.bottom)
+    if not user32.ClientToScreen(info.hwndCaret, ctypes.byref(point)):
+        return None
+    return point.x, point.y

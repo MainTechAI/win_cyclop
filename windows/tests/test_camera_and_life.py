@@ -137,17 +137,15 @@ def test_looks_at_the_user_and_where_they_look(mascot):
     assert mascot.target[0] > 0.1, "follows the estimated gaze to the right"
 
 
-def test_idle_life_hunts_yawns_and_sleeps(mascot):
+def test_idle_life_plays_acts_then_yawns_and_sleeps(mascot):
     now = time.monotonic()
-    import random
-    random.seed(4)
-    names = set()
-    for _ in range(40):
-        mascot.choose_behaviour(now)
-        names.add(mascot.behaviour)
-    assert {"hunt", "look_around", "tilt"} <= names
-    mascot.behaviour = None
+    mascot.last_pointer_move = mascot.last_typing = now - 10
+    mascot.engine.next_act = 0
+    mascot.tick()
+    assert mascot.engine.act is not None, "an act starts once the pointer has rested"
+    mascot.engine.energy = 0.0
     mascot.last_pointer_move = mascot.last_typing = now - 1000
+    mascot.engine.stop()
     mascot.tick()
     assert mascot.yawn_started is not None
     mascot.next_z = 0

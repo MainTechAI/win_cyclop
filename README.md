@@ -20,7 +20,7 @@ Prefer faster start-up? Download **CyclopWindows-win-x64.zip** from the same rel
 
 ## What it does
 
-- **Cyclop, the eye**: follows the mouse pointer anywhere on the screen, reads along while you type, startles, gets dizzy, hunts, yawns and sleeps, scans with red sonar, and tucks itself above the screen edge when idle. Click it to open or close the panel.
+- **Cyclop, the eye**: follows the mouse pointer, watches the text cursor as you type and glances at windows you switch to. When you pause it patrols the screen with red sonar, hunts spots, peers, nods, rolls its eye, and yawns and dozes when left alone. It gulps what you copy, bobs to music, trembles when the CPU is maxed, and peeks out now and then when tucked away. Click it to open or close the panel.
 - **System stats** under the eye: CPU, RAM, GPU and temperature as coloured numbers.
 - **Look where I look** (opt-in): with your webcam, Cyclop looks at you and learns where on the screen you are looking, calibrating itself from your mouse movements. Video never leaves your PC.
 - **Image → text** (Ctrl+Shift+X): drag around anything on screen; offline Windows OCR copies the text, with a red sonar scan while it reads.

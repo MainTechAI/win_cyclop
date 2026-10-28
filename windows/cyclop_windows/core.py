@@ -21,6 +21,9 @@ HOTKEYS = {
     "voice": ("Listen for a voice command", "Ctrl+Alt+V"),
 }
 
+MASCOT_SIZES = {"Small": 72, "Medium": 96, "Large": 120}
+LIVELINESS_LEVELS = ("Calm", "Lively", "Playful")
+
 IRIS_COLORS = {"Red": "#ff3b30", "Teal": "#3fd6c6", "Violet": "#9b7bff", "Amber": "#ffb347", "Green": "#6ee07a", "Blue": "#5aa9ff"}
 
 DEFAULT_LEFT = ["music", "shelf", "clipboard", "snippets", "calendar", "translate"]
@@ -63,7 +66,12 @@ DEFAULTS = {
     # Mascot
     "mascot_enabled": True,
     "mascot_autohide": True,
-    "mascot_autohide_seconds": 8,
+    "mascot_autohide_seconds": 30,
+    "mascot_size": "Medium",
+    "mascot_liveliness": "Lively",
+    "mascot_peek": True,
+    "mascot_watch_windows": True,
+    "mascot_marks": True,
     "mascot_follow_cursor": True,
     "mascot_iris": "Red",
     "camera_follow": False,
@@ -81,9 +89,9 @@ DEFAULTS = {
     "whisper_model": "base",
     "speech_language": "auto",
     "hotkeys": {key: value[1] for key, value in HOTKEYS.items()},
-    "config_version": 3,
+    "config_version": 4,
 }
-CONFIG_VERSION = 3
+CONFIG_VERSION = 4
 
 STAT_KEYS = {"cpu": "CPU", "ram": "RAM", "gpu": "GPU", "temp": "Temp"}
 
@@ -115,6 +123,13 @@ def normalise_config(config: dict) -> dict:
         result["whisper_model"] = DEFAULTS["whisper_model"]
     if result["speech_language"] not in ("auto", "en", "ru"):
         result["speech_language"] = "auto"
+    if result["mascot_size"] not in MASCOT_SIZES:
+        result["mascot_size"] = DEFAULTS["mascot_size"]
+    if result["mascot_liveliness"] not in LIVELINESS_LEVELS:
+        result["mascot_liveliness"] = DEFAULTS["mascot_liveliness"]
+    if version < 4 and result["mascot_autohide_seconds"] == 8:
+        # 0.2.x tucked Cyclop away after 8 s, before its idle life could start.
+        result["mascot_autohide_seconds"] = 30
     if version < 3:
         # 0.2.0 saved stats as off by default; 0.2.1 shows them unless turned off since.
         result["stats_enabled"] = True
