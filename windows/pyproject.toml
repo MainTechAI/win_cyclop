@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10", "pyinstaller>=6.11,<7"]
+dev = ["pytest>=8,<10", "pyinstaller>=6.11,<7", "pillow>=10"]
 translate = ["argostranslate>=1.9,<2"]
 speech = ["faster-whisper>=1.1,<2"]
 

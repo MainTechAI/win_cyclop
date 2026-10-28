@@ -30,7 +30,53 @@ Prefer faster start-up? Download **CyclopWindows-win-x64.zip** from the same rel
 - Media controls with artwork, a file shelf with drag-and-drop, opt-in clipboard history, snippets, calendar (`.ics`), notes, teleprompter and currency conversion.
 - Arrange the tabs as you like (drag to reorder, move between the left and right rails, hide the ones you don't use); they cycle in a loop with Ctrl+Tab or the mouse wheel. **Ctrl+Alt+Space** opens the panel, and every feature and shortcut can be switched off or changed in Settings, which also shows the installed version.
 
-Full details, shortcuts, privacy notes and the developer guide are in **[windows/README.md](windows/README.md)**.
+See [every animation](#every-animation) below. Full details, shortcuts, privacy notes and the developer guide are in **[windows/README.md](windows/README.md)**.
+
+## Every animation
+
+Recorded from the real app (`windows/scripts/make-eye-gifs.py` regenerates them). How often the idle animations play is set by **Liveliness** in Settings.
+
+### Watching
+
+|   |   |   |
+|:---:|:---:|:---:|
+| <img src="windows/docs/eye/wake-up.gif" alt="Wake up" height="150"><br>**Wake up**<br>Slides in at start-up, opens its lids, double-blinks and pings. | <img src="windows/docs/eye/follow.gif" alt="Follow the pointer" height="150"><br>**Follow the pointer**<br>Watches the mouse anywhere on the screen. | <img src="windows/docs/eye/caret.gif" alt="Watch the text cursor" height="150"><br>**Watch the text cursor**<br>Follows the caret while you type (apps that expose it). |
+| <img src="windows/docs/eye/reading.gif" alt="Read along" height="150"><br>**Read along**<br>Scans left to right while you type in apps that hide the caret. | <img src="windows/docs/eye/window-glance.gif" alt="Glance at windows" height="150"><br>**Glance at windows**<br>Looks at a window you switch to, with a ping. |   |
+
+### Idle life: plays when the mouse rests
+
+|   |   |   |
+|:---:|:---:|:---:|
+| <img src="windows/docs/eye/patrol.gif" alt="Patrol" height="150"><br>**Patrol**<br>Checks parts of the screen in turn with sonar pings and a radar sweep. | <img src="windows/docs/eye/hunt.gif" alt="Hunt" height="150"><br>**Hunt**<br>Squints at a spot, marks it with red sonar, then pounces. | <img src="windows/docs/eye/peer.gif" alt="Peer" height="150"><br>**Peer**<br>Leans in, tilts its head, big pupil, slow curious blink. |
+| <img src="windows/docs/eye/double-take.gif" alt="Double take" height="150"><br>**Double take**<br>Looks away, then snaps back to the pointer. | <img src="windows/docs/eye/nod.gif" alt="Nod" height="150"><br>**Nod**<br>Yes. | <img src="windows/docs/eye/shake.gif" alt="Head shake" height="150"><br>**Head shake**<br>No. |
+| <img src="windows/docs/eye/roll.gif" alt="Eye roll" height="150"><br>**Eye roll**<br>Rolls its eye all the way round. | <img src="windows/docs/eye/stretch.gif" alt="Stretch" height="150"><br>**Stretch**<br>Stretches and squashes with its lids squeezed. | <img src="windows/docs/eye/spin.gif" alt="Spin" height="150"><br>**Spin**<br>Spins its iris and glows, thinking. |
+
+### Getting tired: after a while alone, or late at night
+
+|   |   |   |
+|:---:|:---:|:---:|
+| <img src="windows/docs/eye/yawn.gif" alt="Yawn" height="150"><br>**Yawn**<br>A big yawn as its energy runs low. | <img src="windows/docs/eye/doze.gif" alt="Doze" height="150"><br>**Doze**<br>Nods off, then jolts awake. | <img src="windows/docs/eye/sleep.gif" alt="Sleep" height="150"><br>**Sleep**<br>Heavy lids, slow breathing, floating z's. |
+
+### Reactions
+
+|   |   |   |
+|:---:|:---:|:---:|
+| <img src="windows/docs/eye/happy.gif" alt="Click" height="150"><br>**Click**<br>Bounces happily when you click it (and opens the panel). | <img src="windows/docs/eye/giggle.gif" alt="Giggle" height="150"><br>**Giggle**<br>Rest the pointer on it. | <img src="windows/docs/eye/startle.gif" alt="Startle" height="150"><br>**Startle**<br>Dart the pointer straight at it. |
+| <img src="windows/docs/eye/dizzy.gif" alt="Dizzy" height="150"><br>**Dizzy**<br>Shake the mouse back and forth near it, or circle it. | <img src="windows/docs/eye/annoyed.gif" alt="Annoyed" height="150"><br>**Annoyed**<br>Click it four times quickly. | <img src="windows/docs/eye/gulp.gif" alt="Gulp" height="150"><br>**Gulp**<br>Copy something: it swallows it. |
+| <img src="windows/docs/eye/music.gif" alt="Groove" height="150"><br>**Groove**<br>Bobs and sways while music plays. | <img src="windows/docs/eye/strained.gif" alt="Strained" height="150"><br>**Strained**<br>CPU maxed or PC hot: fast breathing, tremble, glow. |   |
+
+### At work
+
+|   |   |   |
+|:---:|:---:|:---:|
+| <img src="windows/docs/eye/listening.gif" alt="Listening" height="150"><br>**Listening**<br>Voice command: the iris brightens and pulses with your voice. | <img src="windows/docs/eye/thinking.gif" alt="Thinking" height="150"><br>**Thinking**<br>Working out what you said. | <img src="windows/docs/eye/scanning.gif" alt="Scanning" height="150"><br>**Scanning**<br>Stares at the area it reads for text capture, sweeping sonar. |
+| <img src="windows/docs/eye/text-capture.gif" alt="Text capture" height="150"><br>**Text capture**<br>Red sonar sweep over the selected area (Ctrl+Shift+X). | <img src="windows/docs/eye/sonar-mark.gif" alt="Sonar mark" height="150"><br>**Sonar mark**<br>Left on the screen where it hunts or patrols. | <img src="windows/docs/eye/error.gif" alt="Error" height="150"><br>**Error**<br>Shakes and turns amber when something fails. |
+
+### Out of the way
+
+|   |   |   |
+|:---:|:---:|:---:|
+| <img src="windows/docs/eye/tuck-and-peek.gif" alt="Tuck away and peek" height="150"><br>**Tuck away and peek**<br>Slides above the screen edge leaving the stats, then peeks out now and then. |   |   |
 
 ## Repository layout
 
