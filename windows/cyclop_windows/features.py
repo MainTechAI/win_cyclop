@@ -4,9 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QFile, QSize, QTimer, QUrl, Qt, Signal
-from PySide6.QtGui import QDesktopServices, QKeySequence, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QKeySequenceEdit, QLabel, QListWidget,
+    QAbstractItemView, QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QKeySequenceEdit, QLabel, QListWidget,
     QListWidgetItem, QPlainTextEdit, QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -420,6 +420,134 @@ class QuickSettings(QFrame):
 
 
 # ---------------------------------------------------------------- settings
+class TabArrangement(QWidget):
+    """Reorder and show/hide the panel tabs. A divider row splits the left and right rails.
+
+    Drag and drop works with the mouse; Move up / Move down work with the keyboard.
+    Settings stays at the bottom of the right rail and cannot be hidden.
+    """
+    DIVIDER = "__divider__"
+    ROW = 26
+
+    def __init__(self, model, tab_names):
+        super().__init__()
+        self.model = model
+        self.names = tab_names
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.list = QListWidget()
+        self.list.setAccessibleName("Panel tabs in order")
+        self.list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setStyleSheet(
+            "QListWidget::item { padding: 2px 6px; margin: 1px 0; }"
+            "QListWidget::indicator { width: 13px; height: 13px; border: 1px solid #666; border-radius: 3px; background: #151515; }"
+            "QListWidget::indicator:checked { background: #85a9df; border-color: #85a9df; }")
+        self.list.setIconSize(QSize(16, 16))
+        layout.addWidget(self.list)
+        self.up = button("Move up", lambda: self.move(-1))
+        self.down = button("Move down", lambda: self.move(1))
+        layout.addLayout(row(self.up, self.down, None, button("Reset order", self.reset)))
+        self.list.model().rowsMoved.connect(lambda *args: self.apply())
+        self.list.itemChanged.connect(lambda item: self.apply())
+        self.list.currentRowChanged.connect(lambda *args: self.update_buttons())
+        self.refresh()
+
+    def refresh(self):
+        from PySide6.QtWidgets import QListWidgetItem
+        config = self.model.config
+        current = self.current_key()
+        self.list.blockSignals(True)
+        self.list.model().blockSignals(True)
+        self.list.clear()
+        movable = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled
+        for side in ("left", "right"):
+            if side == "right":
+                divider = QListWidgetItem("──────  right rail  ──────")
+                divider.setData(Qt.ItemDataRole.UserRole, self.DIVIDER)
+                divider.setFlags(movable)
+                divider.setForeground(QColor("#8c8c8c"))
+                divider.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.list.addItem(divider)
+            for key in config["tab_layout"][side]:
+                item = QListWidgetItem(icon(key), self.names[key])
+                item.setData(Qt.ItemDataRole.UserRole, key)
+                if key == "settings":
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                    item.setToolTip("Settings always stays at the bottom of the right rail")
+                else:
+                    item.setFlags(movable | Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(Qt.CheckState.Unchecked if key in config["disabled_tabs"] else Qt.CheckState.Checked)
+                self.list.addItem(item)
+        row_height = self.list.sizeHintForRow(0) if self.list.count() else self.ROW
+        self.list.setFixedHeight(self.list.count() * max(row_height, 18) + 2 * self.list.frameWidth() + 4)
+        self.list.model().blockSignals(False)
+        self.list.blockSignals(False)
+        if current is not None:
+            self.select(current)
+        self.update_buttons()
+
+    def current_key(self):
+        item = self.list.currentItem()
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def select(self, key):
+        for index in range(self.list.count()):
+            if self.list.item(index).data(Qt.ItemDataRole.UserRole) == key:
+                self.list.setCurrentRow(index)
+                return
+
+    def order(self):
+        return [self.list.item(index).data(Qt.ItemDataRole.UserRole) for index in range(self.list.count())]
+
+    def apply(self):
+        """Store the list as the tab layout and the hidden set; the panel updates live."""
+        from .core import normalise_layout
+        keys = self.order()
+        split = keys.index(self.DIVIDER) if self.DIVIDER in keys else len(keys)
+        layout = normalise_layout({"left": keys[:split], "right": keys[split + 1:]})
+        hidden = []
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            key = item.data(Qt.ItemDataRole.UserRole)
+            if key not in (self.DIVIDER, "settings") and item.checkState() == Qt.CheckState.Unchecked:
+                hidden.append(key)
+        if sorted(hidden) != self.model.config["disabled_tabs"]:
+            self.model.configure("disabled_tabs", sorted(hidden))
+        if layout != self.model.config["tab_layout"]:
+            self.model.configure("tab_layout", layout)
+        self.refresh()  # show the repaired order (e.g. Settings back at the bottom)
+
+    def move(self, step):
+        row_index = self.list.currentRow()
+        target = row_index + step
+        key = self.current_key()
+        if key in (None, "settings") or not 0 <= target < self.list.count():
+            return
+        if self.list.item(target).data(Qt.ItemDataRole.UserRole) == "settings":
+            return
+        self.list.model().blockSignals(True)
+        item = self.list.takeItem(row_index)
+        self.list.insertItem(target, item)
+        self.list.model().blockSignals(False)
+        self.apply()
+        self.select(key)
+
+    def update_buttons(self):
+        key = self.current_key()
+        row_index = self.list.currentRow()
+        last_movable = self.list.count() - 2  # Settings is last
+        self.up.setEnabled(key not in (None, "settings") and row_index > 0)
+        self.down.setEnabled(key not in (None, "settings") and row_index < last_movable)
+
+    def reset(self):
+        from .core import DEFAULT_LEFT, DEFAULT_RIGHT
+        self.model.configure("tab_layout", {"left": list(DEFAULT_LEFT), "right": list(DEFAULT_RIGHT)})
+        self.refresh()
+
+
 class SettingsPane(Pane):
     """Every feature can be switched on or off here; changes apply immediately."""
     hotkey_changed = Signal()
@@ -520,22 +648,25 @@ class SettingsPane(Pane):
             self.content.addLayout(row(name, editor, reset))
         self.content.addWidget(self.hotkey_status)
 
-        self.section("SHOW IN PANEL")
-        grid = QGridLayout()
-        index = 0
-        for key, name in tab_names.items():
-            if key == "settings":
-                continue
-            control = QCheckBox(name)
-            control.setChecked(key not in model.config["disabled_tabs"])
-            control.toggled.connect(lambda checked, key=key: self.toggle_tab(key, checked))
-            grid.addWidget(control, index // 3, index % 3)
-            index += 1
-        self.content.addLayout(grid)
+        self.section("PANEL TABS")
+        self.content.addWidget(label("Drag tabs to rearrange them, or use the arrows. Tabs above the divider go on the left rail, "
+                                     "tabs below it on the right. Untick a tab to hide it.", True))
+        self.arrangement = TabArrangement(model, tab_names)
+        self.content.addWidget(self.arrangement)
         self.content.addWidget(label("Escape collapses the panel. Clipboard history is session-only. Notes, snippets and recordings stay on this computer.\n"
                                      "Currency requests happen only when you press Fetch rates.", True))
         self.content.addWidget(button("Open data folder", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(model.store.directory)))))
         self.content.addStretch()
+        from . import __version__
+        self.version = label(f"Cyclop for Windows {__version__}", True)
+        self.version.setWordWrap(False)
+        self.version.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.version.setAccessibleName("Version")
+        notes = button("Release notes", lambda: QDesktopServices.openUrl(
+            QUrl(f"https://github.com/MainTechAI/win_cyclop/releases/tag/windows-v{__version__}")))
+        latest = button("Latest version", lambda: QDesktopServices.openUrl(QUrl("https://github.com/MainTechAI/win_cyclop/releases/latest")))
+        self.content.addSpacing(6)
+        self.content.addLayout(row(self.version, None, notes, latest))
         scroll.setWidget(body)
         self.layout.addWidget(scroll)
 
@@ -557,11 +688,6 @@ class SettingsPane(Pane):
         values = set(self.model.config[key])
         values.add(item) if checked else values.discard(item)
         self.model.configure(key, [value for value in order if value in values])
-
-    def toggle_tab(self, key, checked):
-        disabled = set(self.model.config["disabled_tabs"])
-        disabled.discard(key) if checked else disabled.add(key)
-        self.model.configure("disabled_tabs", sorted(disabled))
 
     def set_hotkey(self, key, editor):
         text = editor.keySequence().toString(QKeySequence.SequenceFormat.PortableText)

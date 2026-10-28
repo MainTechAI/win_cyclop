@@ -30,7 +30,7 @@ from .speech import Transcriber
 from .system import StatsWorker, sample_once
 from .windows import keep_awake, lock_workstation, open_target, press_key
 
-from .core import HOTKEYS, IRIS_COLORS, cycle, data_directory, parse_command
+from .core import DEFAULT_LEFT, DEFAULT_RIGHT, HOTKEYS, IRIS_COLORS, cycle, data_directory, parse_command
 from .features import OcrPane, QuickSettings, RecorderPane, SettingsPane
 from .mascot import MascotWindow, app_icon
 from .model import Model
@@ -49,8 +49,7 @@ TABS = {
     "currency": "Currency", "teleprompter": "Teleprompter", "ocr": "Text capture",
     "recorder": "Recorder", "settings": "Settings",
 }
-LEFT = ["music", "shelf", "clipboard", "snippets", "calendar", "translate"]
-RIGHT = ["notes", "currency", "teleprompter", "ocr", "recorder", "settings"]
+LEFT, RIGHT = DEFAULT_LEFT, DEFAULT_RIGHT  # default arrangement; users can rearrange in Settings
 TALL = {"notes", "teleprompter", "settings", "recorder"}
 
 
@@ -167,8 +166,10 @@ class Panel(QWidget):
         body_layout = QHBoxLayout(self.body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(12)
-        self.buttons = {}
-        body_layout.addLayout(self.rail(LEFT))
+        self.buttons = {key: RailButton(key, self) for key in TABS}
+        self.rails = {"left": self.rail(), "right": self.rail()}
+        self.arranged = None
+        body_layout.addLayout(self.rails["left"])
         self.stack = QStackedWidget()
         self.panes = {
             "music": MediaPane(model, start_services, self.volume), "shelf": ShelfPane(model),
@@ -185,7 +186,7 @@ class Panel(QWidget):
         self.cover.setObjectName("secondary")
         self.stack.addWidget(self.cover)
         body_layout.addWidget(self.stack, 1)
-        body_layout.addLayout(self.rail(RIGHT))
+        body_layout.addLayout(self.rails["right"])
         self.animation = QPropertyAnimation(self, b"geometry", self)
         self.animation.setDuration(120)
         self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -214,16 +215,28 @@ class Panel(QWidget):
         self.animation_done()
         self.reposition()
 
-    def rail(self, keys):
+    def rail(self):
         layout = QVBoxLayout()
         layout.setSpacing(4)
         layout.setContentsMargins(0, 0, 0, 0)
-        for key in keys:
-            control = RailButton(key, self)
-            self.buttons[key] = control
-            layout.addWidget(control)
-        layout.addStretch()
         return layout
+
+    def arrange_rails(self):
+        """Put the rail buttons in the user's order (Settings → Panel tabs)."""
+        layout = self.model.config["tab_layout"]
+        if layout == self.arranged:
+            return
+        self.arranged = {side: list(keys) for side, keys in layout.items()}
+        for side, rail in self.rails.items():
+            while rail.count():
+                rail.takeAt(0)
+            for key in layout[side]:
+                rail.addWidget(self.buttons[key])
+            rail.addStretch()
+
+    def visible_tabs(self, side):
+        disabled = self.model.config["disabled_tabs"]
+        return [key for key in self.model.config["tab_layout"][side] if key not in disabled]
 
     def display(self):
         chosen = self.model.config.get("screen")
@@ -238,6 +251,9 @@ class Panel(QWidget):
             height = 318
         else:
             height = 264
+        # Tall enough for the longest rail, however the user arranged it.
+        longest = max(len(self.visible_tabs("left")), len(self.visible_tabs("right")))
+        height = max(height, 34 + longest * 32 + 26)
         height = height if self.expanded else 28
         height = min(height, bounds.height())
         return QRect(bounds.x() + (bounds.width() - width) // 2, bounds.y(), width, height)
@@ -251,11 +267,12 @@ class Panel(QWidget):
         self.reposition()
 
     def config_changed(self):
+        self.arrange_rails()
         disabled = self.model.config["disabled_tabs"]
         for key, control in self.buttons.items():
             control.setVisible(key not in disabled)
         if self.current_tab in disabled:
-            self.current_tab = next(key for key in TABS if key not in disabled)
+            self.current_tab = self.tab_order()[0] if self.tab_order() else "settings"
         self.select_tab(self.current_tab)
         self.reposition()
 
@@ -274,8 +291,8 @@ class Panel(QWidget):
             self.animate()
 
     def tab_order(self):
-        disabled = self.model.config["disabled_tabs"]
-        return [key for key in LEFT + RIGHT if key not in disabled]
+        """Visible tabs in rail order: down the left rail, then down the right one."""
+        return self.visible_tabs("left") + self.visible_tabs("right")
 
     def cycle_tab(self, step=1):
         """Move to the next/previous visible tab; past the last one wraps to the first."""

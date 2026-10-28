@@ -23,6 +23,32 @@ HOTKEYS = {
 
 IRIS_COLORS = {"Red": "#ff3b30", "Teal": "#3fd6c6", "Violet": "#9b7bff", "Amber": "#ffb347", "Green": "#6ee07a", "Blue": "#5aa9ff"}
 
+DEFAULT_LEFT = ["music", "shelf", "clipboard", "snippets", "calendar", "translate"]
+DEFAULT_RIGHT = ["notes", "currency", "teleprompter", "ocr", "recorder", "settings"]
+ALL_TABS = DEFAULT_LEFT + DEFAULT_RIGHT
+
+
+def normalise_layout(layout) -> dict:
+    """Repair a user's tab arrangement: every known tab exactly once, Settings last on the right.
+
+    Unknown names are dropped; tabs added in newer versions join their default rail.
+    """
+    layout = layout if isinstance(layout, dict) else {}
+    seen, rails = {"settings"}, {}
+    for side in ("left", "right"):
+        values = layout.get(side) if isinstance(layout.get(side), list) else []
+        rails[side] = []
+        for key in values:
+            if isinstance(key, str) and key in ALL_TABS and key not in seen:
+                rails[side].append(key)
+                seen.add(key)
+    for side, defaults in (("left", DEFAULT_LEFT), ("right", DEFAULT_RIGHT)):
+        rails[side] += [key for key in defaults if key not in seen]
+        seen.update(defaults)
+    rails["right"].append("settings")
+    return rails
+
+
 DEFAULTS = {
     "clipboard_enabled": False,
     "capture_images": False,
@@ -30,6 +56,7 @@ DEFAULTS = {
     "hover_tabs": True,
     "screen": "",
     "disabled_tabs": [],
+    "tab_layout": {"left": list(DEFAULT_LEFT), "right": list(DEFAULT_RIGHT)},
     "calendar_path": "",
     # Panel behaviour
     "tab_cycling": True,
@@ -77,6 +104,8 @@ def normalise_config(config: dict) -> dict:
     result["mascot_autohide_seconds"] = min(120, max(2, result["mascot_autohide_seconds"]))
     result["camera_index"] = min(9, max(0, result["camera_index"]))
     result["stats_items"] = [item for item in result["stats_items"] if item in STAT_KEYS]
+    result["tab_layout"] = normalise_layout(result["tab_layout"])
+    result["disabled_tabs"] = sorted({key for key in result["disabled_tabs"] if key in ALL_TABS and key != "settings"})
     hotkeys = dict(DEFAULTS["hotkeys"])
     hotkeys.update({k: v for k, v in result["hotkeys"].items() if k in HOTKEYS and isinstance(v, str)})
     result["hotkeys"] = hotkeys
