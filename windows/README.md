@@ -37,17 +37,7 @@ A 3D floating eye orb sits beside the notch (red by default; other colours and t
 
 **Idle life.** When the mouse rests for a moment (2.5 s by default), Cyclop plays short acts, never the same one twice in a row:
 
-| Act | What you see |
-|---|---|
-| Patrol | Looks at three or four parts of the screen in turn, pinging red sonar and sweeping its radar |
-| Hunt | Stares and squints at a spot, leaves a red sonar mark there, then pounces |
-| Peer | Leans in (grows), tilts its head and looks at the pointer with a big pupil, then a slow, curious blink |
-| Double take | Looks away, then snaps back to the pointer with a jolt |
-| Nod / head shake | Yes and no |
-| Roll | Rolls its eye all the way round |
-| Stretch | Stretches and squashes with its lids squeezed |
-| Spin | Spins its iris and glows, thinking |
-| Yawn / doze | When it has been left alone for a while (or late at night): yawns, dozes with droopy lids and floating z's, jolts awake |
+Each one is shown as a GIF in [Every animation](../README.md#every-animation) in the main README: patrol, hunt, peer, double take, nod, head shake, eye roll, stretch and iris spin, and when it has been left alone (or late at night) yawn, doze and sleep.
 
 Its **energy** runs down while you are away and recovers when you use the PC, so it is playful while you work and sleepy after a break or late at night. **Liveliness** in Settings (Calm, Lively, Playful) sets how often it plays.
 
@@ -207,7 +197,8 @@ The hosted build does not replace these checks on a real Windows 11 desktop:
 ## Architecture
 
 - `app.py`: window geometry, animation, hover state, rails and tab cycling; the `Cyclop` controller wires tray, shortcuts, mascot, voice, text capture, lookups and keep-awake.
-- `mascot.py`: ray-traced 3D eye renderer, animated mascot window and the 2D icon/`.ico` writer.
+- `mascot.py`: ray-traced 3D eye renderer, animated mascot window and the 2D icon/`.ico` writer; `behaviour.py`: the idle acts and energy engine; `sonar.py`: on-screen sonar marks.
+- `scripts/make-eye-gifs.py`: records every eye animation as a GIF for the README (`pip install pillow`); `scripts/make-preview.py`: the panel preview image.
 - `features.py`: text capture, recorder, volume, quick-settings flyout and settings panes.
 - `capture.py`: freeze-frame region selector; `popups.py`: selection grabber and define/translate popup.
 - `speech.py`: microphone recorder and faster-whisper transcription; `system.py`: stats sampler and Core Audio volume.
