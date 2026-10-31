@@ -1,4 +1,5 @@
 """The behaviour engine and Cyclop's reactions to what happens on the PC."""
+import math
 import random
 import time
 
@@ -183,3 +184,61 @@ def test_long_titles_without_spaces_wrap_and_elide(app):
     lines = label.text().splitlines()
     assert len(lines) == 2 and lines[-1].endswith("…")
     assert all(label.fontMetrics().horizontalAdvance(line) <= label.contentsRect().width() + 1 for line in lines)
+
+
+def test_faded_sonar_marks_are_forgotten_safely(app, mascot):
+    """A mark deletes itself when it fades; adding the next one must not touch it."""
+    mascot.sonar_mark(QPoint(50, 50))
+    old = mascot.marks[0]
+    old.close()  # WA_DeleteOnClose
+    app.processEvents()
+    from PySide6.QtCore import QCoreApplication, QEvent
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    mascot.sonar_mark(QPoint(80, 80))       # used to raise "Internal C++ object already deleted"
+    assert len(mascot.marks) == 1
+    mascot.shutdown()
+
+
+def test_speech_model_release_never_blocks_or_frees_a_model_in_use(monkeypatch):
+    import threading
+    from cyclop_windows.speech import Transcriber
+    monkeypatch.setattr(Transcriber, "_models", {"base": object()})
+    monkeypatch.setattr(Transcriber, "_last_used", time.monotonic() - 3600)
+    # A model is loading (lock held by another thread): returns at once instead of freezing the UI.
+    held = threading.Event()
+    release = threading.Event()
+
+    def loader():
+        with Transcriber._lock:
+            held.set()
+            release.wait(5)
+    thread = threading.Thread(target=loader)
+    thread.start()
+    held.wait(5)
+    started = time.monotonic()
+    assert Transcriber.release_idle(300) is False
+    assert time.monotonic() - started < 0.5
+    release.set()
+    thread.join()
+    # A long transcription in progress keeps its model, however old the last use is.
+    monkeypatch.setattr(Transcriber, "_active", 1)
+    assert Transcriber.release_idle(300) is False and Transcriber._models
+    monkeypatch.setattr(Transcriber, "_active", 0)
+    assert Transcriber.release_idle(300) is True and not Transcriber._models
+
+
+def test_iris_spin_cache_wraps_without_a_jump(app, tmp_path):
+    from cyclop_windows.mascot import MascotWindow
+    window = MascotWindow(Model(tmp_path), start_animation=False)
+    try:
+        assert abs(math.sin(0.7 * window.SPIN_PERIOD)) < 1e-9, "both fibre patterns repeat at the wrap"
+        window.spin = window.SPIN_PERIOD - 0.001
+        window.render_frame(0, 0, 1, 0.5, 1)
+        before = window.frame_key[6]
+        window.spin = 0.001
+        window.render_frame(0, 0, 1, 0.5, 1)
+        steps = round(window.SPIN_PERIOD / window.SPIN_STEP)
+        assert (window.frame_key[6] - before) % steps in (0, 1, steps - 1)
+    finally:
+        window.shutdown()
+        window.close()

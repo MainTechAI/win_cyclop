@@ -1,15 +1,23 @@
 """Small Windows integration boundary; imported safely on other systems for tests."""
 import ctypes
 from ctypes import wintypes
+from functools import lru_cache
 import sys
 
 from PySide6.QtCore import QAbstractNativeEventFilter
 
 
+@lru_cache(maxsize=None)
+def _dll(name):
+    """Load a Windows system library once. Cyclop polls the pointer, keyboard and active
+    window several times a second; re-loading user32 on every call was wasted work."""
+    return ctypes.WinDLL(name, use_last_error=True)
+
+
 def clipboard_is_private() -> bool:
     if sys.platform != "win32":
         return False
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32 = _dll("user32")
     user32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
     user32.RegisterClipboardFormatW.restype = wintypes.UINT
     user32.IsClipboardFormatAvailable.argtypes = [wintypes.UINT]
@@ -24,7 +32,7 @@ def clipboard_is_private() -> bool:
     user32.OpenClipboard.argtypes = [wintypes.HWND]
     user32.GetClipboardData.argtypes = [wintypes.UINT]
     user32.GetClipboardData.restype = wintypes.HANDLE
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = _dll("kernel32")
     kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
     kernel32.GlobalLock.restype = ctypes.c_void_p
     kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
@@ -58,7 +66,7 @@ class HotkeyFilter(QAbstractNativeEventFilter):
         self.registered_ids: set[int] = set()
         self.user32 = None
         if sys.platform == "win32":
-            self.user32 = ctypes.WinDLL("user32", use_last_error=True)
+            self.user32 = _dll("user32")
             self.user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
             self.user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
         if callback is not None:
@@ -107,14 +115,21 @@ class HotkeyFilter(QAbstractNativeEventFilter):
         if entry:
             entry[1]()
 
+    # MSG.message follows the window handle; reading just that field lets every other
+    # Windows message (paints, timers, mouse moves) pass through without building a MSG.
+    MESSAGE_OFFSET = ctypes.sizeof(ctypes.c_void_p)
+
     def nativeEventFilter(self, event_type, message):
-        if sys.platform == "win32":
-            msg = wintypes.MSG.from_address(int(message))
-            if msg.message == 0x0312:
-                for identifier, callback in list(self.actions.values()):
-                    if msg.wParam == identifier:
-                        callback()
-                        return True, 0
+        if self.user32 is None or not self.registered_ids:
+            return False, 0
+        address = int(message)
+        if ctypes.c_uint.from_address(address + self.MESSAGE_OFFSET).value != 0x0312:   # WM_HOTKEY
+            return False, 0
+        msg = wintypes.MSG.from_address(address)
+        for identifier, callback in list(self.actions.values()):
+            if msg.wParam == identifier:
+                callback()
+                return True, 0
         return False, 0
 
     def close(self):
@@ -130,7 +145,7 @@ def keep_awake(enabled: bool) -> bool:
     """Prevent sleep and screen-off while enabled. Applies to the calling (GUI) thread."""
     if sys.platform != "win32":
         return False
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = _dll("kernel32")
     kernel32.SetThreadExecutionState.argtypes = [wintypes.DWORD]
     kernel32.SetThreadExecutionState.restype = wintypes.DWORD
     flags = ES_CONTINUOUS | (ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED if enabled else 0)
@@ -145,7 +160,7 @@ KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP = 0x0001, 0x0002
 def press_key(name: str, repeat: int = 1):
     if sys.platform != "win32":
         return
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32 = _dll("user32")
     code = VK[name]
     for _ in range(repeat):
         user32.keybd_event(code, 0, KEYEVENTF_EXTENDEDKEY, 0)
@@ -155,7 +170,7 @@ def press_key(name: str, repeat: int = 1):
 def modifiers_down() -> bool:
     if sys.platform != "win32":
         return False
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32 = _dll("user32")
     user32.GetAsyncKeyState.restype = ctypes.c_short
     return any(user32.GetAsyncKeyState(code) & 0x8000 for code in (0x10, 0x11, 0x12, 0x5B, 0x5C))
 
@@ -164,7 +179,7 @@ def send_copy():
     """Synthesise Ctrl+C in the foreground app to read its current selection."""
     if sys.platform != "win32":
         return
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32 = _dll("user32")
     user32.keybd_event(VK["control"], 0, 0, 0)
     user32.keybd_event(VK["c"], 0, 0, 0)
     user32.keybd_event(VK["c"], 0, KEYEVENTF_KEYUP, 0)
@@ -174,7 +189,7 @@ def send_copy():
 def clipboard_sequence() -> int:
     if sys.platform != "win32":
         return 0
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32 = _dll("user32")
     user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
     return int(user32.GetClipboardSequenceNumber())
 
@@ -182,7 +197,7 @@ def clipboard_sequence() -> int:
 def lock_workstation() -> bool:
     if sys.platform != "win32":
         return False
-    return bool(ctypes.WinDLL("user32", use_last_error=True).LockWorkStation())
+    return bool(_dll("user32").LockWorkStation())
 
 
 def open_target(target: str):
@@ -294,7 +309,7 @@ def last_input_tick() -> int:
     if sys.platform != "win32":
         return 0
     info = _LastInputInfo(ctypes.sizeof(_LastInputInfo), 0)
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32 = _dll("user32")
     user32.GetLastInputInfo.argtypes = [ctypes.POINTER(_LastInputInfo)]
     if user32.GetLastInputInfo(ctypes.byref(info)):
         return int(info.dwTime)
@@ -311,7 +326,7 @@ def foreground_window():
     """(handle, (left, top, right, bottom) in physical pixels, process id) of the active window, or None."""
     if sys.platform != "win32":
         return None
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32 = _dll("user32")
     user32.GetForegroundWindow.restype = wintypes.HWND
     user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
@@ -334,7 +349,7 @@ def caret_position():
     """
     if sys.platform != "win32":
         return None
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32 = _dll("user32")
     user32.GetGUIThreadInfo.argtypes = [wintypes.DWORD, ctypes.POINTER(_GuiThreadInfo)]
     user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
     info = _GuiThreadInfo()

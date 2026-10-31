@@ -157,11 +157,15 @@ class Volume:
         if sys.platform != "win32":
             self.error = "Volume control is available on Windows"
             return
+        # Check that the Core Audio bindings are installed without importing them yet:
+        # comtypes is loaded when a volume slider is first shown.
+        import importlib.util
         try:
-            from pycaw.pycaw import AudioUtilities  # noqa: F401
-            self.available = True
-        except Exception as exc:
-            self.error = f"Volume control unavailable: {exc}"
+            self.available = importlib.util.find_spec("pycaw") is not None and importlib.util.find_spec("comtypes") is not None
+        except (ImportError, ValueError):
+            self.available = False
+        if not self.available:
+            self.error = "Volume control unavailable: pycaw is not installed"
 
     def _endpoint(self):
         from ctypes import POINTER, cast

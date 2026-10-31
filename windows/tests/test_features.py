@@ -502,3 +502,22 @@ def test_windows_power_counters_and_hotkeys():
         assert hotkeys.is_registered("ocr")
     finally:
         hotkeys.close()
+
+
+@windows_only
+def test_hotkey_filter_fast_path_only_reacts_to_wm_hotkey():
+    import ctypes
+    from ctypes import wintypes
+    from cyclop_windows.windows import HotkeyFilter
+    hotkeys = HotkeyFilter()
+    fired = []
+    try:
+        assert hotkeys.set("ocr", "Ctrl+Shift+Alt+F10", lambda: fired.append(1)) is None
+        identifier = hotkeys.actions["ocr"][0]
+        other = wintypes.MSG(None, 0x0200, identifier, 0, 0, wintypes.POINT(0, 0))   # WM_MOUSEMOVE
+        hotkey = wintypes.MSG(None, 0x0312, identifier, 0, 0, wintypes.POINT(0, 0))  # WM_HOTKEY
+        assert hotkeys.nativeEventFilter(b"windows_generic_MSG", ctypes.addressof(other)) == (False, 0)
+        assert hotkeys.nativeEventFilter(b"windows_generic_MSG", ctypes.addressof(hotkey)) == (True, 0)
+        assert fired == [1]
+    finally:
+        hotkeys.close()

@@ -9,6 +9,7 @@ translucent always-on-top window.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 import math
 import random
 import struct
@@ -73,6 +74,10 @@ class EyeRenderer:
         self.occlusion = 0.55 + 0.45 * self._smooth(-1.0, 0.35, n[..., 1])
         # Halo outside the sphere (iris-coloured glow) uses distance from the rim.
         self.halo = np.exp(-np.clip(d - self.RADIUS, 0, None) * 9) * (d >= self.RADIUS - 0.02)
+        self.halo_base = (self.halo * (1 - self.coverage)).astype("float32")
+        self.coverage_255_flat = (self.coverage * 255).astype("float32")
+        self.coverage_255 = self.coverage_255_flat[..., None]
+        self.rgba = np.empty((size, size, 4), dtype="uint8")   # reused output buffer (QImage copies it)
         albedo = np.array([0.045, 0.05, 0.065], dtype="float32")
         body = albedo * (self.diffuse * self.occlusion)[..., None]
         body += (0.9 * self.spec_sharp + 0.12 * self.spec_broad)[..., None]
@@ -147,18 +152,23 @@ class EyeRenderer:
                     eye[lid] = lid_color[lid]
             flat = color.reshape(-1, 3)
             flat[index] = eye
-        # --- tone map, gamma, coverage and halo.
-        color = color / (1 + 0.55 * color)
-        color = np.clip(color, 0, 1) ** (1 / 2.2)
-        alpha = self.coverage
-        halo = self.halo * (0.30 * glow) * (1 - alpha)
-        halo_rgb = np.clip(iris_rgb ** (1 / 2.2), 0, 1)
-        rgb = color * alpha[..., None] + halo_rgb * halo[..., None]
-        total = alpha + halo
-        rgba = np.empty((self.size, self.size, 4), dtype="uint8")
-        rgba[..., :3] = np.clip(rgb * 255 + 0.5, 0, 255)
-        rgba[..., 3] = np.clip(total * 255 + 0.5, 0, 255)
-        rgba[..., :3] = np.minimum(rgba[..., :3], rgba[..., 3:4])
+        # --- tone map, gamma, coverage and halo (in place: this stage touches every pixel).
+        denominator = color * 0.55
+        denominator += 1
+        color /= denominator
+        np.clip(color, 0, 1, out=color)
+        np.power(color, 1 / 2.2, out=color)
+        halo = self.halo_base * (0.30 * glow)                 # halo · (1 − coverage), precomputed
+        halo_rgb = np.clip(iris_rgb ** (1 / 2.2), 0, 1) * 255
+        color *= self.coverage_255                              # premultiplied by coverage, scaled to 0–255
+        color += halo_rgb * halo[..., None]
+        color += 0.5
+        rgba = self.rgba
+        alpha = self.coverage_255_flat + halo * 255 + 0.5
+        np.minimum(alpha, 255, out=alpha)
+        np.minimum(color, alpha[..., None], out=color)         # premultiplied colour never exceeds alpha
+        rgba[..., :3] = color
+        rgba[..., 3] = alpha
         image = QImage(rgba.data, self.size, self.size, self.size * 4, QImage.Format.Format_RGBA8888_Premultiplied)
         return image.copy()
 
@@ -311,6 +321,12 @@ class MascotWindow(QWidget):
         self.started = now
         self.last_render = 0.0
         self.last_signature = None
+        self.frame_cache: OrderedDict = OrderedDict()   # rendered eyes, reused while it rests
+        self.frame_key = None
+        self.paint_signature = None
+        self.footer_cache = (None, None)                # (key, pixmap) of the stats pill
+        self.text_widths: dict[str, int] = {}
+        self._metrics = None
         # Body language
         self.hop = Spring(0.0, 9.0)        # vertical offset in px
         self.squash = Spring(0.0, 11.0)    # >0 squashed, <0 stretched
@@ -426,14 +442,24 @@ class MascotWindow(QWidget):
             parts.insert(0, ("●", SONAR))  # the tucked eye, as a red dot
         return parts
 
+    def text_width(self, text):
+        """Text widths are measured once and remembered (the pill is redrawn often)."""
+        width = self.text_widths.get(text)
+        if width is None:
+            if self._metrics is None:
+                from PySide6.QtGui import QFontMetrics
+                self._metrics = QFontMetrics(self.footer_font())
+            if len(self.text_widths) > 256:
+                self.text_widths.clear()
+            width = self.text_widths[text] = self._metrics.horizontalAdvance(text)
+        return width
+
     def footer_width(self):
-        from PySide6.QtGui import QFontMetrics
         parts = self.footer_parts()
         if not parts:
             return 0
-        metrics = QFontMetrics(self.footer_font())
         # Reserve room for the widest value ("100%", "100°") so the window does not jitter.
-        widest = sum(metrics.horizontalAdvance(text if (self.caption or text == "●") else text.split(" ")[0] + " 100%") for text, _ in parts)
+        widest = sum(self.text_width(text if (self.caption or text == "●") else text.split(" ")[0] + " 100%") for text, _ in parts)
         return min(360, widest + 9 * (len(parts) - 1) + 32)
 
     def footer_height(self):
@@ -459,7 +485,7 @@ class MascotWindow(QWidget):
         self.engine.liveliness = config.get("mascot_liveliness", "Lively")
         if not config["mascot_enabled"]:
             self.hide()
-            for mark in self.marks:
+            for mark in self.live_marks():
                 mark.close()
             return
         self.reposition()
@@ -702,10 +728,15 @@ class MascotWindow(QWidget):
         if not self.model.config.get("mascot_marks", True) or point is None:
             return
         from .sonar import SonarMark
-        self.marks = [mark for mark in self.marks if mark.isVisible()][-3:]
+        self.marks = self.live_marks()[-3:]
         mark = SonarMark(QPoint(point))
         mark.show()
         self.marks.append(mark)
+
+    def live_marks(self):
+        """Marks delete themselves when they fade out; never touch a deleted one."""
+        from shiboken6 import isValid
+        return [mark for mark in self.marks if isValid(mark) and mark.isVisible()]
 
     def peek(self, now, seconds=3.2):
         """Slide halfway out from the top edge, look around, then tuck away again."""
@@ -888,9 +919,6 @@ class MascotWindow(QWidget):
         dt = min(0.1, now - self.last)
         self.last = now
         resting = self.tucked and self.offset >= 0.999 and not self.pings and not self.peeking
-        wanted = 250 if resting else 33
-        if self.frame_timer.interval() != wanted:
-            self.frame_timer.setInterval(wanted)
         pointer_active = now - self.last_pointer_move < 2.5
         typing = now - self.last_typing < 1.5 and not pointer_active
         if pointer_active or typing:
@@ -1076,14 +1104,22 @@ class MascotWindow(QWidget):
         spin_speed = 14 if dizzy else (beat.spin if beat is not None and beat.spin is not None else
                                        3.5 if self.state in ("thinking", "scanning") else 0.25)
         self.spin += dt * spin_speed
-        signature = (round(gx, 3), round(gy, 3), round(openness, 2), round(pupil, 2), self.iris, self.state)
-        moving = (signature != self.last_signature or self.state in ("listening", "thinking", "scanning")
-                  or dizzy or spin_speed > 1 or self.hot)
-        if moving or now - self.last_render > 0.12 or self.frame.isNull():
-            self.last_signature = signature
-            self.last_render = now
-            self.render_frame(gx, gy, openness, glow, pupil)
-        self.update()
+        if self.offset < 0.98 or self.frame.isNull():
+            self.render_frame(gx, gy, openness, glow, pupil)   # (not while hidden above the screen edge)
+        # ---------------- pacing: 30 fps while anything moves, 15 fps for slow breathing,
+        # 4 fps while tucked away. Saves most of the CPU when Cyclop just sits there.
+        settling = any(abs(spring.velocity) > 0.05 for spring in (self.hop, self.squash, self.tilt, self.lean_x, self.zoom,
+                                                                  self.gaze_x, self.gaze_y))
+        lively = (pointer_active or typing or beat is not None or self.pings or sweeping or dizzy or groove
+                  or self.state != "idle" or self.blink_started is not None or settling or self.zs
+                  or intro < 1.6 or self.peeking or self.strained or self.hot or spin_speed > 1
+                  or self.slide.state() == QVariantAnimation.State.Running
+                  or now < max(self.startle_until, self.happy_until, self.annoyed_until, self.tickle_until,
+                               self.gulp_until, self.shake_until, self.dizzy_until, self.glance_until))
+        wanted = 250 if resting else (33 if lively else 66)
+        if self.frame_timer.interval() != wanted:
+            self.frame_timer.setInterval(wanted)
+        self.request_paint(now)
 
     def _target_towards(self, point, reach):
         center = self.eye_center_global()
@@ -1103,15 +1139,53 @@ class MascotWindow(QWidget):
         ey = math.copysign(min(1.0, abs(dy) / reach_y) ** 0.7, dy)
         return (0.42 * ex, max(-0.32, min(0.36, -0.36 * ey)))
 
+    # Rendering steps: finer than the eye can see at this size, coarse enough that an
+    # eye at rest (and its slow breathing glow) maps onto a handful of cached images.
+    GAZE_STEP, LID_STEP, PUPIL_STEP, GLOW_STEP, SPIN_STEP = 0.004, 0.02, 0.02, 0.025, 0.06
+    CACHE_FRAMES = 64
+    # The iris fibres use spin and 0.7 · spin; both repeat only every 20π (0.7 · 20π = 14π),
+    # so wrapping at 2π would make the second pattern jump.
+    SPIN_PERIOD = 20 * math.pi
+
     def render_frame(self, gx, gy, openness, glow, pupil):
         dpr = self.devicePixelRatioF() or 1.0
         size = int(self.ORB * dpr)
         if self.renderer is None or self.renderer.size != size:
             self.renderer = EyeRenderer(size)
+            self.frame_cache.clear()
         self.dpr = dpr
-        self.frame = self.renderer.render((gx, gy), openness, self.iris, glow, pupil, self.spin,
-                                          seam=0.4 if self.state in ("listening", "scanning") else 0.0)
-        self.frame.setDevicePixelRatio(dpr)
+        seam = 0.4 if self.state in ("listening", "scanning") else 0.0
+        q = lambda value, step: int(round(value / step))
+        key = (size, q(gx, self.GAZE_STEP), q(gy, self.GAZE_STEP), q(openness, self.LID_STEP), q(pupil, self.PUPIL_STEP),
+               q(glow, self.GLOW_STEP), q(self.spin % self.SPIN_PERIOD, self.SPIN_STEP), self.iris, seam)
+        if key == self.frame_key and not self.frame.isNull():
+            return
+        frame = self.frame_cache.get(key)
+        if frame is None:
+            frame = self.renderer.render((key[1] * self.GAZE_STEP, key[2] * self.GAZE_STEP), key[3] * self.LID_STEP,
+                                         self.iris, key[5] * self.GLOW_STEP, key[4] * self.PUPIL_STEP,
+                                         key[6] * self.SPIN_STEP, seam=seam)
+            frame.setDevicePixelRatio(dpr)
+            self.frame_cache[key] = frame
+            if len(self.frame_cache) > self.CACHE_FRAMES:
+                self.frame_cache.popitem(last=False)
+            self.last_render = time.monotonic()
+        else:
+            self.frame_cache.move_to_end(key)
+        self.frame, self.frame_key = frame, key
+
+    def request_paint(self, now):
+        """Repaint only when something on screen actually changed."""
+        dx, dy = self.body_offset(now)
+        rate = 0.8 if self.sleepy else 1.7
+        breathe = round(math.sin((now - self.started) * rate), 2)
+        signature = (self.frame_key, round(dx * 4), round(dy * 4), round(self.tilt.value, 1), round(self.zoom.value, 3),
+                     round(self.squash.value, 2), breathe, tuple(round(now - p, 2) for p in self.pings),
+                     round(self.sweep_angle) if now < self.sweeping_until else None,
+                     tuple(round(now - z[0], 2) for z in self.zs), tuple(self.footer_parts()), round(self.offset, 3))
+        if signature != self.paint_signature:
+            self.paint_signature = signature
+            self.update()
 
     # ------------------------------------------------------------ painting & input
     def body_offset(self, now):
@@ -1191,6 +1265,40 @@ class MascotWindow(QWidget):
             painter.drawText(QPointF(0, 0), "z")
             painter.restore()
 
+    def ring_sprite(self, radius, width):
+        """A red ring drawn once per size and reused: stroking large anti-aliased circles
+        every frame was the most expensive part of painting Cyclop."""
+        dpr = self.devicePixelRatioF() or 1.0
+        key = (float(round(radius)), round(width * 4) / 4, dpr)   # whole-pixel radii: ~40 sprites
+        cache = self.__dict__.setdefault("ring_cache", OrderedDict())
+        sprite = cache.get(key)
+        if sprite is None:
+            size = int(math.ceil(radius * 2 + width + 4))
+            sprite = QPixmap(int(size * dpr), int(size * dpr))
+            sprite.setDevicePixelRatio(dpr)
+            sprite.fill(Qt.GlobalColor.transparent)
+            sprite_painter = QPainter(sprite)
+            sprite_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            sprite_painter.setPen(QPen(QColor(SONAR), key[1]))
+            sprite_painter.drawEllipse(QPointF(size / 2, size / 2), key[0], key[0])
+            sprite_painter.end()
+            cache[key] = sprite
+            if len(cache) > 56:
+                cache.popitem(last=False)
+        else:
+            cache.move_to_end(key)
+        return sprite
+
+    def draw_ring(self, painter, center, radius, width, alpha):
+        if alpha <= 0.01:
+            return
+        sprite = self.ring_sprite(radius, width)
+        dpr = sprite.devicePixelRatio() or 1.0
+        half = sprite.width() / dpr / 2
+        painter.setOpacity(alpha)
+        painter.drawPixmap(QPointF(center.x() - half, center.y() - half), sprite)
+        painter.setOpacity(1.0)
+
     def paint_sonar(self, painter, center, now):
         red = QColor(SONAR)
         radius = self.ORB / 2
@@ -1205,26 +1313,39 @@ class MascotWindow(QWidget):
             painter.setBrush(sweep)
             painter.drawEllipse(center, radius + reach, radius + reach)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor(red.red(), red.green(), red.blue(), 55), 1))
             for fraction in (0.45, 1.0):
-                painter.drawEllipse(center, radius + reach * fraction, radius + reach * fraction)
+                self.draw_ring(painter, center, radius + reach * fraction, 1.0, 55 / 255)
         for start in self.pings:
             age = now - start
             if age < 0:
                 continue
             t = min(1.0, age / 1.4)
             ring = radius + reach * (1 - (1 - t) ** 2)
-            alpha = int(200 * (1 - t) ** 1.4)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor(red.red(), red.green(), red.blue(), alpha), 2.2 - 1.2 * t))
-            painter.drawEllipse(center, ring, ring)
+            self.draw_ring(painter, center, ring, 2.2 - 1.2 * t, 200 / 255 * (1 - t) ** 1.4)
 
     def paint_footer(self, painter, area):
+        """Draw the stats pill from a cached image; it is re-rendered only when its text changes."""
+        parts = tuple(self.footer_parts())
+        dpr = self.devicePixelRatioF() or 1.0
+        key = (parts, int(area.width()), int(area.height()), dpr)
+        cached_key, pixmap = self.footer_cache
+        if cached_key != key:
+            pixmap = QPixmap(max(1, int(area.width() * dpr)), max(1, int(area.height() * dpr)))
+            pixmap.setDevicePixelRatio(dpr)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            pill_painter = QPainter(pixmap)
+            pill_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            pill_painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            self.draw_pill(pill_painter, QRectF(0, 0, area.width(), area.height()), parts)
+            pill_painter.end()
+            self.footer_cache = (key, pixmap)
+        painter.drawPixmap(area.topLeft(), pixmap)
+
+    def draw_pill(self, painter, area, parts):
         painter.setFont(self.footer_font())
         metrics = painter.fontMetrics()
-        parts = self.footer_parts()
         spacing = 9
-        text_width = sum(metrics.horizontalAdvance(text) for text, _ in parts) + spacing * (len(parts) - 1)
+        text_width = sum(self.text_width(text) for text, _ in parts) + spacing * (len(parts) - 1)
         text_width = min(text_width, area.width() - 16)
         pill = QRectF(area.center().x() - text_width / 2 - 8, area.y(), text_width + 16, area.height())
         path = QPainterPath()
@@ -1235,7 +1356,7 @@ class MascotWindow(QWidget):
             text = metrics.elidedText(text, Qt.TextElideMode.ElideRight, int(pill.right() - x - 4))
             painter.setPen(QColor(color))
             painter.drawText(QRectF(x, pill.y(), pill.right() - x, pill.height()), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
-            x += metrics.horizontalAdvance(text) + spacing
+            x += self.text_width(text) + spacing
 
     def hits_body(self, pos: QPointF) -> bool:
         if self.offset > 0.5:  # tucked: the docked pill or handle is the target
@@ -1286,7 +1407,7 @@ class MascotWindow(QWidget):
         super().enterEvent(event)
 
     def shutdown(self):
-        for mark in self.marks:
+        for mark in self.live_marks():
             mark.close()
         self.frame_timer.stop()
         self.pointer.stop()

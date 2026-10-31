@@ -157,14 +157,36 @@ class Transcriber:
     """Lazy faster-whisper model, cached per size. Runs on worker threads only."""
     _lock = threading.Lock()
     _models: dict[str, object] = {}
+    _last_used = 0.0
+    _active = 0          # transcriptions in progress: their model must not be released
 
     @classmethod
     def available(cls) -> bool:
+        """Whether speech recognition is installed, without loading it (it costs ~40 MB of RAM
+        and a second of start-up; it is imported only when you first record or speak)."""
+        import importlib.util
         try:
-            import faster_whisper  # noqa: F401
-            return True
-        except Exception:
+            return importlib.util.find_spec("faster_whisper") is not None
+        except (ImportError, ValueError):
             return False
+
+    @classmethod
+    def release_idle(cls, idle_seconds=300) -> bool:
+        """Free the speech model's memory (hundreds of MB) after a few unused minutes.
+        The next voice command or transcription loads it again."""
+        # Never wait here: this runs on the GUI thread, and the lock is held while a model
+        # loads (the first time that includes a download). If it is busy, try next minute.
+        if not cls._lock.acquire(blocking=False):
+            return False
+        try:
+            if not cls._models or cls._active or time.monotonic() - cls._last_used < idle_seconds:
+                return False
+            cls._models.clear()
+        finally:
+            cls._lock.release()
+        import gc
+        gc.collect()
+        return True
 
     @classmethod
     def transcribe(cls, samples, model_dir: Path, size="base", language="auto") -> str:
@@ -180,9 +202,15 @@ class Transcriber:
                 model_dir.mkdir(parents=True, exist_ok=True)
                 model = WhisperModel(size, device="cpu", compute_type="int8", download_root=str(model_dir))
                 cls._models[size] = model
-        segments, _info = model.transcribe(samples, language=None if language == "auto" else language,
-                                           beam_size=1, vad_filter=False, condition_on_previous_text=False)
-        return " ".join(segment.text.strip() for segment in segments).strip()
+            cls._active += 1
+        try:
+            segments, _info = model.transcribe(samples, language=None if language == "auto" else language,
+                                               beam_size=1, vad_filter=False, condition_on_previous_text=False)
+            return " ".join(segment.text.strip() for segment in segments).strip()
+        finally:
+            with cls._lock:
+                cls._active -= 1
+                cls._last_used = time.monotonic()
 
 
 def recording_path(directory: Path) -> Path:
