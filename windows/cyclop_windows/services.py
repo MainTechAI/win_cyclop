@@ -117,9 +117,10 @@ class MediaWorker(QThread):
 
         manager = await asyncio.wait_for(Manager.request_async(), 5)
         while not self.stop_event.is_set():
-            if not self.enabled.is_set():
+            if not self.enabled.is_set() and self.commands.empty():
                 # Music tab closed: only a light check every few seconds, and only
-                # while something (Cyclop bobbing to the music) wants to know.
+                # while something (Cyclop bobbing to the music) wants to know. Pending
+                # Play/Next/seek commands still go through the full path below at once.
                 if not self.background.is_set() or time.monotonic() - self.last_background < 3.0:
                     await asyncio.sleep(.25)
                     continue

@@ -1143,6 +1143,9 @@ class MascotWindow(QWidget):
     # eye at rest (and its slow breathing glow) maps onto a handful of cached images.
     GAZE_STEP, LID_STEP, PUPIL_STEP, GLOW_STEP, SPIN_STEP = 0.004, 0.02, 0.02, 0.025, 0.06
     CACHE_FRAMES = 64
+    # The iris fibres use spin and 0.7 · spin; both repeat only every 20π (0.7 · 20π = 14π),
+    # so wrapping at 2π would make the second pattern jump.
+    SPIN_PERIOD = 20 * math.pi
 
     def render_frame(self, gx, gy, openness, glow, pupil):
         dpr = self.devicePixelRatioF() or 1.0
@@ -1154,7 +1157,7 @@ class MascotWindow(QWidget):
         seam = 0.4 if self.state in ("listening", "scanning") else 0.0
         q = lambda value, step: int(round(value / step))
         key = (size, q(gx, self.GAZE_STEP), q(gy, self.GAZE_STEP), q(openness, self.LID_STEP), q(pupil, self.PUPIL_STEP),
-               q(glow, self.GLOW_STEP), q(self.spin % (2 * math.pi), self.SPIN_STEP), self.iris, seam)
+               q(glow, self.GLOW_STEP), q(self.spin % self.SPIN_PERIOD, self.SPIN_STEP), self.iris, seam)
         if key == self.frame_key and not self.frame.isNull():
             return
         frame = self.frame_cache.get(key)
