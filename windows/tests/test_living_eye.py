@@ -183,3 +183,16 @@ def test_long_titles_without_spaces_wrap_and_elide(app):
     lines = label.text().splitlines()
     assert len(lines) == 2 and lines[-1].endswith("…")
     assert all(label.fontMetrics().horizontalAdvance(line) <= label.contentsRect().width() + 1 for line in lines)
+
+
+def test_faded_sonar_marks_are_forgotten_safely(app, mascot):
+    """A mark deletes itself when it fades; adding the next one must not touch it."""
+    mascot.sonar_mark(QPoint(50, 50))
+    old = mascot.marks[0]
+    old.close()  # WA_DeleteOnClose
+    app.processEvents()
+    from PySide6.QtCore import QCoreApplication, QEvent
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    mascot.sonar_mark(QPoint(80, 80))       # used to raise "Internal C++ object already deleted"
+    assert len(mascot.marks) == 1
+    mascot.shutdown()

@@ -518,6 +518,7 @@ class Cyclop(QObject):
         QApplication.clipboard().dataChanged.connect(self.clipboard_changed)
         media = self.panel.panes["music"].worker
         media.state.connect(self.mascot.set_media)
+        media.playing.connect(self.mascot.set_media)
         media.background.set()
         # Opt-in webcam gaze, calibrated continuously from mouse movement.
         self.calibrator = GazeCalibrator()
@@ -526,6 +527,11 @@ class Cyclop(QObject):
         self.camera_fetching = False
         self.observations = 0
         self.mascot.tucked_changed.connect(lambda tucked: self.update_camera())
+        # Give the speech model's memory back when it has not been used for a while.
+        self.speech_janitor = QTimer(self)
+        self.speech_janitor.setInterval(60_000)
+        self.speech_janitor.timeout.connect(lambda: Transcriber.release_idle(300))
+        self.speech_janitor.start()
         self.camera_retry = QTimer(self)
         self.camera_retry.setSingleShot(True)
         self.camera_retry.timeout.connect(self.retry_camera)

@@ -73,6 +73,7 @@ def translate_offline(text, source, target):
 class MediaWorker(QThread):
     """Owns WinRT objects on one MTA thread, including all transport commands."""
     state = Signal(object)
+    playing = Signal(object)   # {"available", "playing"}: the light check used while the tab is closed
     error = Signal(str)
 
     def __init__(self, parent=None):
@@ -123,6 +124,15 @@ class MediaWorker(QThread):
                     await asyncio.sleep(.25)
                     continue
                 self.last_background = time.monotonic()
+                # Only whether something plays: no titles, artwork or timeline.
+                try:
+                    session = manager.get_current_session()
+                    playing = session is not None and session.get_playback_info().playback_status == Status.PLAYING
+                    self.playing.emit({"available": session is not None, "playing": playing})
+                except Exception:
+                    pass
+                await asyncio.sleep(.25)
+                continue
             try:
                 session = manager.get_current_session()
                 if session is None:
