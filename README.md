@@ -94,19 +94,21 @@ Based on [Cyclop for macOS](https://github.com/akalikbergenov/cyclop) by **akali
 <!-- virustotal:start -->
 ## VirusTotal scans
 
-Scan target: `windows-v0.3.0`. Results refer to these exact file hashes.
+Scan target: `windows-v0.3.1`. Results refer to these exact file hashes.
 
 | File / report | Status | Malicious | Suspicious | Undetected | Harmless | Other* | Analysis time |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| [CyclopWindows.exe](https://www.virustotal.com/gui/file/8bb9a875367d315a9c9cbedaa36ca095804bf4eabdee78ee8f5e7ed948d6f633) | Completed | 2 | 0 | 65 | 0 | 8 | 2026-10-28 13:44 UTC |
-| [CyclopWindows-win-x64.zip](https://www.virustotal.com/gui/file/39eef5809ec69e37e627ce7c159b1fe92865dc6018de8dde28c50ab53ec8c7f6) | Completed | 1 | 0 | 59 | 0 | 15 | 2026-10-28 13:47 UTC |
+| [CyclopWindows.exe](https://www.virustotal.com/gui/file/56000dbc0879146ece3bac227dfe794707db7e3ed754710e6deb89a5e4f06706) | Not completed | — | — | — | — | — | — |
+| [CyclopWindows-win-x64.zip](https://www.virustotal.com/gui/file/516ca621734ebb7a5bb796064a1d92c951312fe6e3d7fc2c00d20588bc09a0e7) | Not completed | — | — | — | — | — | — |
 
 *Other includes timeouts, failures and unsupported file types. Undetected means no detection; it is not a safety guarantee.
 
 SHA-256:
 
-- `CyclopWindows.exe`: `8bb9a875367d315a9c9cbedaa36ca095804bf4eabdee78ee8f5e7ed948d6f633`
-- `CyclopWindows-win-x64.zip`: `39eef5809ec69e37e627ce7c159b1fe92865dc6018de8dde28c50ab53ec8c7f6`
+- `CyclopWindows.exe`: `56000dbc0879146ece3bac227dfe794707db7e3ed754710e6deb89a5e4f06706`
+  - VirusTotal analysis not found
+- `CyclopWindows-win-x64.zip`: `516ca621734ebb7a5bb796064a1d92c951312fe6e3d7fc2c00d20588bc09a0e7`
+  - VirusTotal analysis not found
 
 Reports may change as engines update. Known hashes reuse their existing report; the table shows that report’s analysis time.
 <!-- virustotal:end -->
