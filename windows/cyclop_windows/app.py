@@ -1043,6 +1043,19 @@ def volume_bindings():
         return f"{type(exc).__name__}: {exc}"[:200]
 
 
+def time_zones():
+    """Calendar time zones resolve from the bundled tzdata (Windows has no system zone files)."""
+    try:
+        import importlib.resources
+        from datetime import datetime
+        with importlib.resources.files("tzdata.zoneinfo.Europe").joinpath("Helsinki").open("rb") as stream:
+            stream.read(4)
+        from zoneinfo import ZoneInfo
+        return str(datetime(2026, 7, 1, tzinfo=ZoneInfo("Europe/Helsinki")).utcoffset())
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"[:200]
+
+
 def check_addons(directory):
     """Install each add-on of this build (CYCLOP_ADDON_SOURCE points at the built files) and use it."""
     results = {}
@@ -1149,6 +1162,7 @@ def main():
                     "volume_available": cyclop.volume.available,
                     "volume_level": cyclop.volume.master(),   # None on a PC without speakers (CI)
                     "volume_bindings": volume_bindings(),
+                    "time_zones": time_zones(),
                     "stats": {key: value for key, value in sample_once().items() if key != "details"},
                     "face_model_bundled": find_model() is not None,
                     "startup_ms": startup.report(),

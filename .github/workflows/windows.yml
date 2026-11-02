@@ -154,6 +154,8 @@ jobs:
           } | Sort-Object MB -Descending
           $total = [math]::Round(((Get-ChildItem dist\CyclopWindows -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB)
           $files = (Get-ChildItem dist\CyclopWindows -Recurse -File).Count
+          $counts = Get-ChildItem $root -Recurse -File | ForEach-Object { $_.FullName.Substring($root.Length + 1).Split('\')[0] } | Group-Object | Sort-Object Count -Descending | Select-Object -First 10 | ForEach-Object { "$($_.Name) $($_.Count)" }
+          Write-Output ("::notice title=app files::" + ($counts -join ' | '))
           Write-Output ("::notice title=app contents::$total MB in $files files: " + (($items | Select-Object -First 18 | ForEach-Object { "$($_.Name) $($_.MB)" }) -join ' | '))
           $qt = Get-ChildItem dist\CyclopWindows\_internal\PySide6 -Recurse -File | Sort-Object Length -Descending | Select-Object -First 14 | ForEach-Object { "$($_.Name) $([math]::Round($_.Length / 1MB, 1))" }
           Write-Output ("::notice title=qt contents::" + ($qt -join ' | '))
