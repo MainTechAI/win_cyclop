@@ -67,11 +67,30 @@ def installed(name: str, root: Path | None = None) -> bool:
     return (folder(name, root) / "cyclop-addon.json").is_file()
 
 
+def compatible(name: str, root: Path | None = None) -> bool:
+    """Add-ons contain native modules for the Python that built them. A source checkout running
+    another Python version shares the data folder with the exe, so it must not load them."""
+    try:
+        info = json.loads((folder(name, root) / "cyclop-addon.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return info.get("python") == f"{sys.version_info.major}.{sys.version_info.minor}"
+
+
+CANCELLED = "The download was cancelled"
+_cancel = threading.Event()
+
+
+def cancel_downloads():
+    """Stop downloads in progress (when Cyclop quits) instead of waiting for them to finish."""
+    _cancel.set()
+
+
 def activate(name: str, root: Path | None = None) -> bool:
     """Make an installed add-on importable. Cheap; safe to call often."""
     if name in _activated:
         return True
-    if not installed(name, root):
+    if not installed(name, root) or not compatible(name, root):
         return False
     path = str(folder(name, root))
     with _lock:
@@ -136,6 +155,8 @@ def install(name: str, progress=None, root: Path | None = None) -> Path:
             stream = open(source, "rb")
         with stream, archive.open("wb") as output:
             while True:
+                if _cancel.is_set():
+                    raise RuntimeError(CANCELLED)
                 block = stream.read(1 << 18)
                 if not block:
                     break
@@ -203,6 +224,7 @@ class Installer(QObject):
                 waiting.append((then, otherwise))
             return False
         self.busy[name] = [(then, otherwise)]
+        _cancel.clear()
         root = self.model.store.directory
         self.progress.emit(name, 0.0)
 
@@ -221,6 +243,8 @@ class Installer(QObject):
 
         def failed(error):
             callbacks = self.busy.pop(name, [])
+            if error == CANCELLED:
+                return   # Cyclop is quitting: nothing to report or switch off
             self.failed.emit(name, error)
             for _, otherwise_ in callbacks:
                 if otherwise_:

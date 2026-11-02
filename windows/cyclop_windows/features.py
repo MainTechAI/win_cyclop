@@ -180,7 +180,8 @@ class RecorderPane(Pane):
         if not Transcriber.available():
             if self.installer is None:
                 self.status.setText("Speech recognition is not installed. From source: pip install -e .[speech]")
-            elif not self.installer.ensure("speech", self.transcribe, lambda error: self.status.setText(error)):
+            # Stable callbacks, so repeated clicks during the download start one transcription, not several.
+            elif not self.installer.ensure("speech", self.transcribe, self.status.setText):
                 from . import addons
                 if addons.downloadable("speech"):
                     self.status.setText(f"Downloading speech recognition ({addons.download_size('speech')}), once. "
