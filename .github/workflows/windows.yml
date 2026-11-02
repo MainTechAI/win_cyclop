@@ -181,6 +181,33 @@ jobs:
           Write-Output ("::notice title=standalone startup::" + (($report.startup_ms | ConvertTo-Json -Compress) -replace '[^\x20-\x7E]', '?'))
           Write-Output ("::notice title=standalone add-ons::" + (($report.addons | ConvertTo-Json -Compress -Depth 4) -replace '[^\x20-\x7E]', '?'))
           if (-not $report.success) { throw "Standalone startup check did not succeed." }
+      - name: Compare start-up with the previous release
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Same runner, alternating launches: time from launch until each build has written its
+          # self-check (both wait a fixed 2 s after start-up before writing it).
+          $previous = Join-Path $env:RUNNER_TEMP 'previous'
+          gh release download --repo $env:GITHUB_REPOSITORY --pattern CyclopWindows.exe --dir $previous --clobber
+          $tag = gh release view --repo $env:GITHUB_REPOSITORY --json tagName --jq .tagName
+          $new = (Resolve-Path dist\standalone\CyclopWindows.exe).Path
+          $results = [ordered]@{ previous_ms = @(); new_ms = @(); new_eye_painted_ms = @() }
+          foreach ($round in 1..3) {
+            foreach ($which in 'previous', 'new') {
+              $exe = if ($which -eq 'new') { $new } else { Join-Path $previous 'CyclopWindows.exe' }
+              $env:CYCLOP_DATA_DIR = Join-Path $env:RUNNER_TEMP "compare-$which-$round"
+              $report = Join-Path $env:CYCLOP_DATA_DIR 'startup-check.json'
+              $watch = [Diagnostics.Stopwatch]::StartNew()
+              $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
+              while (-not (Test-Path $report) -and $watch.ElapsedMilliseconds -lt 120000) { Start-Sleep -Milliseconds 25 }
+              $results["$($which)_ms"] += $watch.ElapsedMilliseconds
+              $null = $process.WaitForExit(60000)
+              if ($which -eq 'new') { $results.new_eye_painted_ms += (Get-Content $report -Raw | ConvertFrom-Json).startup_ms.eye_painted }
+            }
+          }
+          Write-Output ("::notice title=start-up vs $tag::" + ($results | ConvertTo-Json -Compress))
       - uses: actions/upload-artifact@v4
         with:
           name: CyclopWindows-win-x64

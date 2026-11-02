@@ -34,7 +34,9 @@ a = Analysis(
     pathex=[str(ROOT)],
     datas=datas,
     hiddenimports=collect_submodules("winrt") + hidden,
-    excludes=excludes,
+    # PySide6 imports QtNetwork only to look for an OpenSSL folder, and copes with it missing;
+    # Cyclop uses no Qt networking (its few web requests use Python's urllib).
+    excludes=excludes + ["PySide6.QtNetwork"],
     noarchive=False,
 )
 
