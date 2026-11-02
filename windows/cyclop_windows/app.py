@@ -1033,6 +1033,16 @@ class Cyclop(QObject):
         self.tray.hide()
 
 
+def volume_bindings():
+    """Whether the Core Audio bindings load (the volume sliders need them)."""
+    try:
+        import comtypes  # noqa: F401
+        from pycaw.pycaw import AudioUtilities  # noqa: F401
+        return "loaded"
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"[:200]
+
+
 def check_addons(directory):
     """Install each add-on of this build (CYCLOP_ADDON_SOURCE points at the built files) and use it."""
     results = {}
@@ -1137,7 +1147,8 @@ def main():
                     "mascot_rendered": not cyclop.mascot.frame.isNull(),
                     "speech_available": Transcriber.available(),
                     "volume_available": cyclop.volume.available,
-                    "volume_level": cyclop.volume.master(),   # loads Core Audio (pycaw, comtypes) for real
+                    "volume_level": cyclop.volume.master(),   # None on a PC without speakers (CI)
+                    "volume_bindings": volume_bindings(),
                     "stats": {key: value for key, value in sample_once().items() if key != "details"},
                     "face_model_bundled": find_model() is not None,
                     "startup_ms": startup.report(),

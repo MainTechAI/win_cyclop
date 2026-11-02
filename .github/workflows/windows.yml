@@ -146,7 +146,18 @@ jobs:
           Write-Output "Packaged UI rendered and exited cleanly."
           Copy-Item (Join-Path $env:CYCLOP_DATA_DIR 'startup-check.json') dist\CyclopWindows\STARTUP-CHECK.json
       - name: Package
-        run: Compress-Archive -Path dist\CyclopWindows -DestinationPath dist\CyclopWindows-win-x64.zip
+        run: |
+          $root = (Resolve-Path dist\CyclopWindows\_internal).Path
+          $items = Get-ChildItem $root | ForEach-Object {
+            $bytes = if ($_.PSIsContainer) { (Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum } else { $_.Length }
+            [pscustomobject]@{ Name = $_.Name; MB = [math]::Round($bytes / 1MB, 1) }
+          } | Sort-Object MB -Descending
+          $total = [math]::Round(((Get-ChildItem dist\CyclopWindows -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB)
+          $files = (Get-ChildItem dist\CyclopWindows -Recurse -File).Count
+          Write-Output ("::notice title=app contents::$total MB in $files files: " + (($items | Select-Object -First 18 | ForEach-Object { "$($_.Name) $($_.MB)" }) -join ' | '))
+          $qt = Get-ChildItem dist\CyclopWindows\_internal\PySide6 -Recurse -File | Sort-Object Length -Descending | Select-Object -First 14 | ForEach-Object { "$($_.Name) $([math]::Round($_.Length / 1MB, 1))" }
+          Write-Output ("::notice title=qt contents::" + ($qt -join ' | '))
+          Compress-Archive -Path dist\CyclopWindows -DestinationPath dist\CyclopWindows-win-x64.zip
       - name: Build standalone executable
         run: |
           $env:CYCLOP_BUILD = 'onefile'
