@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
 from .behaviour import Act, Beat, Engine, Wiggle, night, resolve_look
 from .core import IRIS_COLORS, MASCOT_SIZES, STAT_KEYS, stat_color, stat_label
+from . import startup
 from .windows import caret_position, foreground_window, last_input_tick
 
 
@@ -1205,6 +1206,8 @@ class MascotWindow(QWidget):
         return float_x + shake, bob + 2.4 * abs(self.hop.value)
 
     def paintEvent(self, event):
+        if "eye_painted" not in startup.marks:
+            startup.mark("eye_painted")
         now = time.monotonic()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

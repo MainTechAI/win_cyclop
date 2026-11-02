@@ -270,6 +270,8 @@ class FaceTracker(QThread):
 
     def run(self):
         try:
+            from . import addons
+            addons.activate("camera")
             import cv2
         except Exception as exc:
             self.failed.emit(f"Camera support is unavailable: {exc}.")

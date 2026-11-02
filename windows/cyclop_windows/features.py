@@ -93,6 +93,7 @@ class RecorderPane(Pane):
                                   button("Folder", self.open_folder)))
         self.status = label("", True)
         self.layout.addWidget(self.status)
+        self.installer = None   # set by the app: downloads speech recognition when first needed
         self.mine = False
         self.clock_timer = QTimer(self)
         self.clock_timer.setInterval(250)
@@ -177,7 +178,13 @@ class RecorderPane(Pane):
             self.status.setText("Select a recording first")
             return
         if not Transcriber.available():
-            self.status.setText("Speech recognition is not installed. From source: pip install -e .[speech]")
+            if self.installer is None:
+                self.status.setText("Speech recognition is not installed. From source: pip install -e .[speech]")
+            elif not self.installer.ensure("speech", self.transcribe, lambda error: self.status.setText(error)):
+                from . import addons
+                if addons.downloadable("speech"):
+                    self.status.setText(f"Downloading speech recognition ({addons.download_size('speech')}), once. "
+                                        "Transcription starts when it's ready.")
             return
         size = self.model.config["whisper_model"]
         language = self.model.config["speech_language"]
@@ -202,6 +209,10 @@ class RecorderPane(Pane):
             self.transcribe_button.setEnabled(True)
             self.status.setText(f"Transcription failed: {error}")
         self.model.run_job(work, done, failed)
+
+    def refresh_speech(self):
+        if self.status.text().startswith("Downloading speech"):
+            self.status.setText("Speech recognition is ready")
 
     def play(self):
         path = self.selected()
@@ -562,6 +573,7 @@ class SettingsPane(Pane):
         self.content = QVBoxLayout(body)
         self.content.setContentsMargins(0, 0, 7, 0)
         self.controls = {}
+        self.addon_status = {}
 
         self.section("PANEL")
         self.check("Open on hover", "hover_open")
@@ -615,6 +627,7 @@ class SettingsPane(Pane):
         self.camera_status = label("Cyclop learns where you look from your mouse movements: move the mouse around normally for a minute.", True)
         self.content.addLayout(row(camera, button("Reset calibration", self.calibration_reset.emit), None))
         self.content.addWidget(self.camera_status)
+        self.addon_note("camera", "Webcam support", "the webcam option")
 
         self.section("SYSTEM STATS UNDER CYCLOP")
         self.check("Show live system stats", "stats_enabled")
@@ -645,8 +658,7 @@ class SettingsPane(Pane):
         language.setCurrentIndex(max(0, language.findData(model.config["speech_language"])))
         language.currentIndexChanged.connect(lambda: model.configure("speech_language", language.currentData()))
         self.content.addLayout(row(label("Speech model", True), whisper, language, None))
-        if not Transcriber.available():
-            self.content.addWidget(label("Speech recognition is not installed in this build. From source: pip install -e .[speech]", True))
+        self.addon_note("speech", "Speech recognition", "voice commands or transcribe a recording")
 
         self.section("SHORTCUTS")
         self.hotkey_status = label("", True)
@@ -684,6 +696,22 @@ class SettingsPane(Pane):
         self.content.addLayout(row(self.version, None, notes, latest))
         scroll.setWidget(body)
         self.layout.addWidget(scroll)
+
+    def addon_note(self, name, title, trigger):
+        """How the optional download stands: shown under the settings that need it."""
+        from . import addons
+        if addons.ready(name, self.model.store.directory):
+            return
+        if addons.downloadable(name):
+            text = f"{title} downloads once ({addons.download_size(name)}) when you turn on {trigger}, so Cyclop starts faster."
+        else:
+            text = f"{title} is not installed in this build. From source: pip install -e .[{name}]"
+        self.addon_status[name] = label(text, True)
+        self.content.addWidget(self.addon_status[name])
+
+    def show_addon(self, name, text):
+        if name in self.addon_status:
+            self.addon_status[name].setText(text)
 
     def section(self, text):
         heading = label(text, False)

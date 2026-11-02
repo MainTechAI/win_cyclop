@@ -118,7 +118,11 @@ class MediaPane(Pane):
         self.worker.error.connect(self.media_error)
         self.previous_art = None
         self.update_state({"available": False})
-        if start_service:
+        # Started shortly after launch (see Cyclop.start_background) or as soon as the tab opens.
+        self.start_service = start_service
+
+    def start(self):
+        if self.start_service and not self.worker.isRunning():
             self.worker.start()
 
     def media_error(self, text):
@@ -154,6 +158,7 @@ class MediaPane(Pane):
     def activated(self, active):
         if active:
             self.worker.enabled.set()
+            self.start()
         else:
             self.worker.enabled.clear()
         if self.volume is not None:

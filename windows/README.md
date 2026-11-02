@@ -122,6 +122,7 @@ Data directory: `%LOCALAPPDATA%\CyclopWindows`.
 - Rates are the only network request in normal operation, and only after pressing Fetch rates. That request contains a fixed EUR base; it does not contain your amount or other tool content.
 - Joining a calendar call opens the event's HTTPS meeting URL in the default browser. Only recognized meeting-service domains are offered.
 - Define (Ctrl+Alt+D) sends only the selected word to Wiktionary, and only while "Allow online dictionary lookups" is on.
+- Speech recognition and webcam support are add-ons. The first time you turn one on, Cyclop downloads it once from this project's GitHub release for your version and installs it into `addons\` in the data folder only if its size and SHA-256 match the values built into the app. Add-ons of older versions are deleted when a newer one is installed.
 - Recordings (`recordings\*.wav` and transcripts) stay in the data folder. Speech models download once from Hugging Face into `models\`; recognition then runs offline. The microphone is opened only while recording or listening for a command.
 - Text capture keeps the frozen screenshot in memory only; recognition is local.
 - Define/translate read your selection with a synthetic Ctrl+C and then restore the previous clipboard; that copy is not added to clipboard history.
@@ -142,12 +143,12 @@ cd windows
 .\.venv\Scripts\python.exe -m cyclop_windows
 ```
 
-Manual setup, including the optional speech engine (voice commands and transcription):
+Manual setup, including the optional speech engine (voice commands and transcription) and webcam support. In the released exe these are add-ons downloaded on demand; from source they are ordinary pip extras:
 
 ```powershell
 cd windows
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[speech]"
+.\.venv\Scripts\python.exe -m pip install -e ".[speech,camera]"
 .\.venv\Scripts\python.exe -m cyclop_windows
 ```
 
@@ -164,7 +165,7 @@ Every pull request also builds both executables in **Actions → Windows build**
 
 ```powershell
 cd windows
-.\.venv\Scripts\python.exe -m pip install -e ".[dev,speech]"
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,speech,camera]"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
@@ -202,6 +203,8 @@ The hosted build does not replace these checks on a real Windows 11 desktop:
 - `features.py`: text capture, recorder, volume, quick-settings flyout and settings panes.
 - `capture.py`: freeze-frame region selector; `popups.py`: selection grabber and define/translate popup.
 - `speech.py`: microphone recorder and faster-whisper transcription; `system.py`: stats sampler and Core Audio volume.
+- `addons.py`: verified download and loading of the optional add-ons; `scripts/build-addons.py` packages them and `cyclop.spec` builds the app without them.
+- `startup.py` and `scripts/profile-startup.py`: start-up timing (in the packaged self-check) and a ranked start-up profile (run in CI).
 - `panes.py`: native Qt tool widgets.
 - `model.py`: shared state, persistence, clipboard handling and background-job coordination.
 - `services.py`: WinRT media worker, public rate retrieval and optional offline translation.

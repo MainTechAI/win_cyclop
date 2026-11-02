@@ -38,10 +38,14 @@ jobs:
           notes="windows/releases/$version.md"
           test -f "$notes"
           cp release-assets/standalone/CyclopWindows.exe release-assets/CyclopWindows.exe
-          (cd release-assets && sha256sum CyclopWindows.exe CyclopWindows-win-x64.zip > SHA256SUMS.txt)
+          cp release-assets/addons/*.zip release-assets/
+          addons=$(cd release-assets/addons && ls *.zip)
+          test -n "$addons"
+          (cd release-assets && sha256sum CyclopWindows.exe CyclopWindows-win-x64.zip $addons > SHA256SUMS.txt)
           # Upload everything while hidden; only publish after all uploads succeed.
           # Existing tags/releases are never overwritten.
           gh release create "$tag" --target "$GITHUB_SHA" --draft \
             --title "Cyclop for Windows $version" --notes-file "$notes" \
-            release-assets/CyclopWindows.exe release-assets/CyclopWindows-win-x64.zip release-assets/SHA256SUMS.txt
+            release-assets/CyclopWindows.exe release-assets/CyclopWindows-win-x64.zip \
+            $(for file in $addons; do echo "release-assets/$file"; done) release-assets/SHA256SUMS.txt
           gh release edit "$tag" --draft=false --latest
