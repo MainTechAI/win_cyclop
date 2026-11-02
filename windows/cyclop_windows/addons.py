@@ -17,8 +17,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import queue
 import shutil
-import socket
 import sys
 import tempfile
 import threading
@@ -82,28 +82,38 @@ CANCELLED = "The download was cancelled"
 _cancel = threading.Event()
 
 
-_connections: set = set()   # sockets of downloads in progress
-
-
 def cancel_downloads():
-    """Stop downloads in progress (when Cyclop quits) instead of waiting for them to finish.
-    Shutting the socket down ends a read that is blocked on a stalled connection at once."""
+    """Stop downloads in progress (when Cyclop quits) instead of waiting for them to finish."""
     _cancel.set()
-    with _lock:
-        sockets = list(_connections)
-    for connection in sockets:
-        try:
-            # The plain socket's shutdown (not SSLSocket's, which also drops its TLS state under the reader).
-            socket.socket.shutdown(connection, socket.SHUT_RDWR)
-        except OSError:
-            pass
 
 
-def _socket_of(response):
+def _transfer(source: str, blocks: queue.Queue, stop: threading.Event):
+    """Connect and read on a thread of its own (a daemon: it never holds up quitting), so the
+    installer can stop waiting at once even while a connection is stalled or still connecting.
+    When the installer gives up (`stop`), this closes the connection as soon as it next can."""
+
+    def hand_over(item) -> bool:
+        while not stop.is_set():
+            try:
+                blocks.put(item, timeout=0.2)
+                return True
+            except queue.Full:
+                continue
+        return False
+
     try:
-        return response.fp.raw._sock
-    except AttributeError:
-        return None
+        if source.startswith(("https://", "http://")):
+            request = Request(source, headers={"User-Agent": f"CyclopWindows/{__version__}"})
+            stream = urlopen(request, timeout=30)
+        else:
+            stream = open(source, "rb")
+        with stream:
+            while not stop.is_set():
+                block = stream.read(1 << 18)
+                if not hand_over(block) or not block:
+                    return
+    except BaseException as exc:
+        hand_over(exc)
 
 
 def activate(name: str, root: Path | None = None) -> bool:
@@ -168,31 +178,23 @@ def install(name: str, progress=None, root: Path | None = None) -> Path:
         archive = Path(work) / entry["file"]
         digest = hashlib.sha256()
         received = 0
-        connection = None
-        if source.startswith(("https://", "http://")):
-            request = Request(source, headers={"User-Agent": f"CyclopWindows/{__version__}"})
-            stream = urlopen(request, timeout=10)    # connecting: quitting waits at most this long
-            connection = _socket_of(stream)
-            if connection is not None:
-                connection.settimeout(30)            # a slow network may pause longer between blocks
-                with _lock:
-                    _connections.add(connection)
-        else:
-            stream = open(source, "rb")
+        blocks: queue.Queue = queue.Queue(maxsize=16)
+        stop = threading.Event()
+        threading.Thread(target=_transfer, args=(source, blocks, stop), daemon=True, name=f"addon-{name}").start()
         try:
-            with stream, archive.open("wb") as output:
+            with archive.open("wb") as output:
                 while True:
+                    try:
+                        block = blocks.get(timeout=0.2)
+                    except queue.Empty:
+                        if _cancel.is_set():
+                            raise RuntimeError(CANCELLED) from None
+                        continue
                     if _cancel.is_set():
                         raise RuntimeError(CANCELLED)
-                    try:
-                        block = stream.read(1 << 18)
-                    except Exception as exc:
-                        if _cancel.is_set():
-                            raise RuntimeError(CANCELLED) from exc
-                        raise
+                    if isinstance(block, BaseException):
+                        raise block
                     if not block:
-                        if _cancel.is_set():
-                            raise RuntimeError(CANCELLED)   # the socket was shut down mid-transfer
                         break
                     received += len(block)
                     if received > size:
@@ -202,9 +204,7 @@ def install(name: str, progress=None, root: Path | None = None) -> Path:
                     if progress:
                         progress(received / size)
         finally:
-            if connection is not None:
-                with _lock:
-                    _connections.discard(connection)
+            stop.set()
         if received != size or digest.hexdigest() != expected:
             raise RuntimeError("The download didn't match this version's checksum, so it wasn't installed")
         unpacked = Path(work) / "unpacked"

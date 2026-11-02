@@ -190,6 +190,7 @@ def test_quitting_interrupts_a_stalled_download_at_once(fake_addon):
     make, _module, root = fake_addon
     entry = make()
     release = threading.Event()
+    served = []
 
     class Stalling(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -198,6 +199,7 @@ def test_quitting_interrupts_a_stalled_download_at_once(fake_addon):
             self.end_headers()
             self.wfile.write(b"PK")
             self.wfile.flush()
+            served.append(True)
             release.wait(20)          # then nothing more: a stalled transfer
 
         def log_message(self, *args):
@@ -212,9 +214,10 @@ def test_quitting_interrupts_a_stalled_download_at_once(fake_addon):
         worker = threading.Thread(target=lambda: errors.append(_capture(addons.install, "probe", None, root)))
         worker.start()
         deadline = time.monotonic() + 5
-        while not addons._connections and time.monotonic() < deadline:
+        while not served and time.monotonic() < deadline:
             time.sleep(0.01)
-        assert addons._connections, "the download never started"
+        assert served, "the download never started"
+        time.sleep(0.3)
         started = time.monotonic()
         addons.cancel_downloads()
         worker.join(5)
@@ -224,7 +227,7 @@ def test_quitting_interrupts_a_stalled_download_at_once(fake_addon):
         release.set()
         server.shutdown()
     assert errors == [addons.CANCELLED]
-    assert not addons.installed("probe", root) and not addons._connections
+    assert not addons.installed("probe", root)
 
 
 def _capture(function, *args):
@@ -233,3 +236,21 @@ def _capture(function, *args):
     except RuntimeError as exc:
         return str(exc)
     return None
+
+
+def test_a_failed_download_closes_its_connection(fake_addon):
+    """When the installer gives up (here: more data than the manifest allows), the reader thread
+    stops too instead of waiting forever with the connection open."""
+    import threading
+    make, _module, root = fake_addon
+    entry = make()
+    big = root.parent / "release" / "CyclopProbe.zip"
+    big.write_bytes(b"x" * (entry["size"] + (1 << 23)))   # far beyond the queue's capacity
+    before = {thread.name for thread in threading.enumerate()}
+    with pytest.raises(RuntimeError, match="larger than expected"):
+        addons.install("probe", None, root)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and any(thread.name == "addon-probe" and thread.name not in before
+                                               for thread in threading.enumerate()):
+        time.sleep(0.05)
+    assert not any(thread.name == "addon-probe" for thread in threading.enumerate())
