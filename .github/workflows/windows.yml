@@ -85,13 +85,22 @@ jobs:
           exit $code
       - name: Profile startup
         timeout-minutes: 3
+        continue-on-error: true
         env:
           QT_QPA_PLATFORM: windows
         run: |
           $env:CYCLOP_DATA_DIR = Join-Path $env:RUNNER_TEMP 'cyclop-profile'
-          python scripts/profile-startup.py --seconds 4 --json startup-profile.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/profile-startup.py --seconds 4 --json startup-profile.json
+          foreach ($run in 1, 2) {
+            python scripts/profile-startup.py --seconds 4 --json startup-profile.json *> profile.log
+            $code = $LASTEXITCODE
+            if ($code -ne 0) {
+              Get-Content profile.log | Where-Object { $_ -match '\S' } | Select-Object -Last 8 | ForEach-Object {
+                $clean = ($_ -replace '[^\x20-\x7E]', '?'); if ($clean.Length -gt 300) { $clean = $clean.Substring(0, 300) }
+                Write-Output ("::warning title=profile detail::" + $clean.Replace('%', '%25'))
+              }
+              exit $code
+            }
+          }
           $prof = Get-Content startup-profile.json -Raw | ConvertFrom-Json
           $top = ($prof.ranked_ms | Select-Object -First 16 | ForEach-Object { "$($_[1]) ms $($_[2]) $($_[0])" }) -join ' | '
           Write-Output ("::notice title=startup moments::" + (($prof.moments_ms | ConvertTo-Json -Compress) + ' ' + ($prof.first_seconds | ConvertTo-Json -Compress)) -replace '[^\x20-\x7E]', '?')
