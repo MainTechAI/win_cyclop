@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: windows/pyproject.toml
       - name: Install
         run: |
-          python -m pip install -e ".[dev,speech]"
+          python -m pip install -e ".[dev,speech,camera]"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Fetch face detector model (SHA-256 pinned)
         run: |
@@ -106,9 +106,21 @@ jobs:
           $top = ($prof.ranked_ms | Select-Object -First 16 | ForEach-Object { "$($_[1]) ms $($_[2]) $($_[0])" }) -join ' | '
           Write-Output ("::notice title=startup moments::" + (($prof.moments_ms | ConvertTo-Json -Compress) + ' ' + ($prof.first_seconds | ConvertTo-Json -Compress)) -replace '[^\x20-\x7E]', '?')
           Write-Output ("::notice title=startup ranked::" + ($top -replace '[^\x20-\x7E]', '?'))
+      - name: Build add-ons (speech recognition, webcam support)
+        run: |
+          python scripts/build-addons.py dist/addons *> addons.log
+          $code = $LASTEXITCODE
+          Get-Content addons.log | Where-Object { $_ -match '^(speech|camera|core build):' } | ForEach-Object {
+            Write-Output ("::notice title=add-ons::" + ($_ -replace '[^\x20-\x7E]', '?'))
+          }
+          if ($code -ne 0) {
+            Get-Content addons.log | Select-Object -Last 8 | ForEach-Object { Write-Output ("::warning title=add-on detail::" + ($_ -replace '[^\x20-\x7E]', '?')) }
+            exit $code
+          }
       - name: Build portable application
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onedir --name CyclopWindows --icon cyclop_windows/assets/cyclop.ico --add-data "cyclop_windows/assets:cyclop_windows/assets" --collect-submodules winrt --collect-data faster_whisper --collect-binaries ctranslate2 --copy-metadata cyclop-windows scripts/launch.py
+          $env:CYCLOP_BUILD = 'onedir'
+          python -m PyInstaller --noconfirm --clean cyclop.spec
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item ..\LICENSE dist\CyclopWindows\LICENSE.txt
           Copy-Item THIRD_PARTY_NOTICES.md dist\CyclopWindows\THIRD_PARTY_NOTICES.md
@@ -118,8 +130,11 @@ jobs:
       - name: Smoke test packaged application
         run: |
           $env:CYCLOP_DATA_DIR = Join-Path $env:RUNNER_TEMP 'cyclop-smoke'
-          $process = Start-Process -FilePath dist\CyclopWindows\CyclopWindows.exe -ArgumentList '--smoke-test' -PassThru
-          if (-not $process.WaitForExit(30000)) {
+          # Install every add-on from the files just built and use it (the Whisper model comes from Hugging Face).
+          $env:CYCLOP_ADDON_SOURCE = (Resolve-Path dist\addons).Path
+          $env:CYCLOP_ADDON_TRANSCRIBE = '1'
+          $process = Start-Process -FilePath dist\CyclopWindows\CyclopWindows.exe -ArgumentList '--smoke-test', '--addon-check' -PassThru
+          if (-not $process.WaitForExit(180000)) {
             Stop-Process -Id $process.Id
             throw "Packaged startup test timed out."
           }
@@ -134,13 +149,18 @@ jobs:
         run: Compress-Archive -Path dist\CyclopWindows -DestinationPath dist\CyclopWindows-win-x64.zip
       - name: Build standalone executable
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onefile --name CyclopWindows --distpath dist/standalone --icon cyclop_windows/assets/cyclop.ico --add-data "cyclop_windows/assets:cyclop_windows/assets" --collect-submodules winrt --collect-data faster_whisper --collect-binaries ctranslate2 --copy-metadata cyclop-windows --add-data "dist/CyclopWindows/licenses:licenses" --add-data "../LICENSE:." --add-data "THIRD_PARTY_NOTICES.md:." scripts/launch.py
+          $env:CYCLOP_BUILD = 'onefile'
+          python -m PyInstaller --noconfirm --clean --distpath dist/standalone cyclop.spec
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $sizes = @{ exe = (Get-Item dist\standalone\CyclopWindows.exe).Length; zip = (Get-Item dist\CyclopWindows-win-x64.zip).Length }
+          Get-ChildItem dist\addons\*.zip | ForEach-Object { $sizes[$_.Name] = $_.Length }
+          Write-Output ("::notice title=download sizes::" + ($sizes | ConvertTo-Json -Compress))
       - name: Smoke test standalone executable
         run: |
           $env:CYCLOP_DATA_DIR = Join-Path $env:RUNNER_TEMP 'cyclop-standalone-smoke'
-          $process = Start-Process -FilePath dist\standalone\CyclopWindows.exe -ArgumentList '--smoke-test' -PassThru
-          if (-not $process.WaitForExit(60000)) {
+          $env:CYCLOP_ADDON_SOURCE = (Resolve-Path dist\addons).Path
+          $process = Start-Process -FilePath dist\standalone\CyclopWindows.exe -ArgumentList '--smoke-test', '--addon-check' -PassThru
+          if (-not $process.WaitForExit(120000)) {
             Stop-Process -Id $process.Id
             throw "Standalone startup test timed out."
           }
@@ -148,6 +168,7 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "Standalone startup test failed: $($process.ExitCode)" }
           $report = Get-Content (Join-Path $env:CYCLOP_DATA_DIR 'startup-check.json') | ConvertFrom-Json
           Write-Output ("::notice title=standalone startup::" + (($report.startup_ms | ConvertTo-Json -Compress) -replace '[^\x20-\x7E]', '?'))
+          Write-Output ("::notice title=standalone add-ons::" + (($report.addons | ConvertTo-Json -Compress -Depth 4) -replace '[^\x20-\x7E]', '?'))
           if (-not $report.success) { throw "Standalone startup check did not succeed." }
       - uses: actions/upload-artifact@v4
         with:
@@ -155,5 +176,6 @@ jobs:
           path: |
             windows/dist/CyclopWindows-win-x64.zip
             windows/dist/standalone/CyclopWindows.exe
+            windows/dist/addons/*.zip
           if-no-files-found: error
           retention-days: 30

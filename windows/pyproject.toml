@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyclop-windows"
-version = "0.3.1"
+version = "0.4.0"
 description = "Cyclop's notch toolbox, reimplemented for Windows 11"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
@@ -15,7 +15,6 @@ dependencies = [
   "numpy>=1.26,<3",
   "psutil>=5.9,<8",
   "sounddevice>=0.4.6,<0.6",
-  "opencv-python-headless>=4.8,<6",
   "pycaw>=20240210,<20270000; sys_platform == 'win32'",
   "comtypes>=1.4,<2; sys_platform == 'win32'",
   "nvidia-ml-py>=12; sys_platform == 'win32'",
@@ -34,6 +33,7 @@ dependencies = [
 dev = ["pytest>=8,<10", "pyinstaller>=6.11,<7", "pillow>=10"]
 translate = ["argostranslate>=1.9,<2"]
 speech = ["faster-whisper>=1.1,<2"]
+camera = ["opencv-python-headless>=4.8,<6"]
 
 [project.gui-scripts]
 cyclop-windows = "cyclop_windows.app:main"

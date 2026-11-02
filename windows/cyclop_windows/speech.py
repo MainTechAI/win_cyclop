@@ -164,11 +164,8 @@ class Transcriber:
     def available(cls) -> bool:
         """Whether speech recognition is installed, without loading it (it costs ~40 MB of RAM
         and a second of start-up; it is imported only when you first record or speak)."""
-        import importlib.util
-        try:
-            return importlib.util.find_spec("faster_whisper") is not None
-        except (ImportError, ValueError):
-            return False
+        from . import addons
+        return addons.ready("speech")
 
     @classmethod
     def release_idle(cls, idle_seconds=300) -> bool:

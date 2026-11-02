@@ -42,7 +42,7 @@ from .speech import Recorder
 from .system import Volume
 from .theme import STYLE, icon
 from .windows import HotkeyFilter
-from . import startup
+from . import addons, startup
 
 TABS = {
     "music": "Music", "shelf": "Shelf", "clipboard": "Clipboard", "snippets": "Snippets",
@@ -533,6 +533,13 @@ class Cyclop(QObject):
         self.speech_janitor.setInterval(60_000)
         self.speech_janitor.timeout.connect(lambda: Transcriber.release_idle(300))
         self.speech_janitor.start()
+        # Speech recognition and webcam gaze are downloaded the first time they're turned on.
+        self.addons = addons.Installer(model, self)
+        self.addons.progress.connect(self.addon_progress)
+        self.addons.finished.connect(self.addon_finished)
+        self.addons.failed.connect(self.addon_failed)
+        self.panel.panes["recorder"].installer = self.addons
+        self.background_started = False
         self.camera_retry = QTimer(self)
         self.camera_retry.setSingleShot(True)
         self.camera_retry.timeout.connect(self.retry_camera)
@@ -609,14 +616,11 @@ class Cyclop(QObject):
         self.voice_action.setVisible(config["voice_enabled"])
         self.tray.setIcon(app_icon(IRIS_COLORS[config["mascot_iris"]]))
         self.panel.setWindowIcon(app_icon(IRIS_COLORS[config["mascot_iris"]]))
-        stats = config["mascot_enabled"] and config["stats_enabled"] and bool(config["stats_items"])
-        if stats:
-            self.stats.enabled.set()
-            if self.start_services and not self.stats.isRunning():
-                self.stats.start()
-        else:
-            self.stats.enabled.clear()
+        self.update_stats()
         self.update_camera()
+        if config["voice_enabled"] and not self.speech_ready():
+            # Turning voice commands on downloads speech recognition once (when this build offers it).
+            self.addons.ensure("speech", otherwise=self.speech_unavailable)
         if not config["voice_enabled"] and self.voice_active:
             self.voice_active = False
             self.recorder.cancel()
@@ -625,6 +629,45 @@ class Cyclop(QObject):
         if signature != self.hotkey_signature:
             self.register_hotkeys()
         self.panel.update()
+
+    def update_stats(self):
+        config = self.model.config
+        if config["mascot_enabled"] and config["stats_enabled"] and bool(config["stats_items"]):
+            self.stats.enabled.set()
+            # The sensors (PDH, NVIDIA) take ~0.25 s to open: not while Cyclop is starting.
+            if self.start_services and self.background_started and not self.stats.isRunning():
+                self.stats.start()
+        else:
+            self.stats.enabled.clear()
+
+    def start_background(self):
+        """Background services that are not needed for the first frames start a moment later."""
+        self.background_started = True
+        self.update_stats()
+        self.panel.panes["music"].start()
+
+    # ------------------------------------------------------------ add-ons
+    def speech_ready(self):
+        return addons.ready("speech", self.model.store.directory)
+
+    def speech_unavailable(self, error):
+        if self.model.config["voice_enabled"]:
+            self.model.configure("voice_enabled", False)
+        self.notify(f"Voice commands stay off: {error}", 7)
+
+    def addon_progress(self, name, fraction):
+        title = addons.ADDONS[name].title
+        if fraction == 0.0:
+            self.notify(f"Downloading {title.lower()} ({addons.download_size(name)}), once…", 4)
+        self.panel.panes["settings"].show_addon(name, f"{title}: downloading… {int(fraction * 100)}%")
+
+    def addon_finished(self, name):
+        self.panel.panes["settings"].show_addon(name, f"{addons.ADDONS[name].title}: installed")
+        self.notify(f"{addons.ADDONS[name].title} is ready", 4)
+        self.panel.panes["recorder"].refresh_speech()
+
+    def addon_failed(self, name, error):
+        self.panel.panes["settings"].show_addon(name, f"{addons.ADDONS[name].title}: download failed: {error}")
 
     def register_hotkeys(self):
         config = self.model.config
@@ -676,6 +719,22 @@ class Cyclop(QObject):
             self.camera_error = ""
         if self.tracker is not None or self.camera_fetching or self.camera_error:
             return
+        if not addons.ready("camera", self.model.store.directory):
+            self.camera_fetching = True
+            self.set_camera_status(f"Downloading webcam support ({addons.download_size('camera')}), once…")
+
+            def installed():
+                self.camera_fetching = False
+                self.update_camera()
+
+            def unavailable(error):
+                self.camera_fetching = False
+                self.camera_error = error   # no automatic retry: toggle the option to try again
+                self.set_camera_status(error)
+            if self.addons.ensure("camera", installed, unavailable):
+                self.camera_fetching = False
+            else:
+                return
         path = find_model(self.model.store.directory)
         if path is None:
             self.camera_fetching = True
@@ -786,8 +845,8 @@ class Cyclop(QObject):
         if not self.model.config["voice_enabled"]:
             self.notify("Voice commands are off — turn them on in Settings → Features")
             return
-        if not Transcriber.available():
-            self.notify("Speech recognition isn't installed in this build")
+        if not self.speech_ready():
+            self.addons.ensure("speech", otherwise=self.speech_unavailable)
             return
         if self.recorder.recording:
             self.notify("The recorder is busy")
@@ -956,6 +1015,8 @@ class Cyclop(QObject):
         self.mascot.apply_config()
         app = QApplication.instance()
         app.installNativeEventFilter(self.hotkeys)
+        if self.start_services:
+            QTimer.singleShot(1500, self.start_background)
 
     def shutdown(self):
         self.hotkeys.close()
@@ -972,10 +1033,56 @@ class Cyclop(QObject):
         self.tray.hide()
 
 
+def check_addons(directory):
+    """Install each add-on of this build (CYCLOP_ADDON_SOURCE points at the built files) and use it."""
+    results = {}
+    for name in addons.manifest():
+        result = results[name] = {"ok": False}
+        try:
+            started = time.monotonic()
+            addons.install(name, root=directory)
+            result["install_s"] = round(time.monotonic() - started, 1)
+            if not addons.ready(name, directory):
+                raise RuntimeError("installed but not importable")
+            if name == "speech":
+                import numpy as np
+                import av
+                import ctranslate2
+                import onnxruntime
+                import faster_whisper  # noqa: F401
+                from faster_whisper.vad import VadOptions, get_speech_timestamps
+                from .speech import write_wav
+                tone = (0.3 * np.sin(np.linspace(0, 2 * np.pi * 440, 16_000))).astype("float32")
+                with av.open(str(write_wav(directory / "addon-check.wav", tone))) as container:   # PyAV (FFmpeg)
+                    decoded = sum(frame.samples for frame in container.decode(audio=0))
+                get_speech_timestamps(np.zeros(16_000, dtype="float32"), VadOptions())        # Silero VAD (ONNX Runtime)
+                result.update(decoded=decoded, ctranslate2=ctranslate2.__version__, onnxruntime=onnxruntime.__version__,
+                              compute=sorted(ctranslate2.get_supported_compute_types("cpu")))
+                if os.environ.get("CYCLOP_ADDON_TRANSCRIBE"):
+                    # Downloads Whisper tiny from Hugging Face: exercises HTTPS and the real model.
+                    try:
+                        result["transcribed"] = repr(Transcriber.transcribe(tone, directory / "models", "tiny", "en"))
+                    except Exception as exc:
+                        result["transcribe_error"] = str(exc)[:200]
+            elif name == "camera":
+                import numpy as np
+                import cv2
+                from .camera import find_model
+                model_path = find_model(directory)
+                detector = cv2.FaceDetectorYN.create(str(model_path), "", (320, 240), 0.7, 0.3, 50)
+                _, faces = detector.detect(np.zeros((240, 320, 3), dtype=np.uint8))
+                result.update(opencv=cv2.__version__, faces=0 if faces is None else len(faces), video_capture=hasattr(cv2, "VideoCapture"))
+            result["ok"] = True
+        except Exception as exc:
+            result["error"] = f"{type(exc).__name__}: {exc}"[:300]
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description="Cyclop for Windows 11")
     parser.add_argument("--expanded", action="store_true", help="Open the panel at launch")
     parser.add_argument("--smoke-test", action="store_true", help="Render the packaged UI, write a startup report and exit")
+    parser.add_argument("--addon-check", action="store_true", help="With --smoke-test: install every add-on and use it")
     args = parser.parse_args()
     startup.mark("imports")
     app = QApplication(sys.argv[:1])
@@ -1030,10 +1137,14 @@ def main():
                     "mascot_rendered": not cyclop.mascot.frame.isNull(),
                     "speech_available": Transcriber.available(),
                     "volume_available": cyclop.volume.available,
+                    "volume_level": cyclop.volume.master(),   # loads Core Audio (pycaw, comtypes) for real
                     "stats": {key: value for key, value in sample_once().items() if key != "details"},
                     "face_model_bundled": find_model() is not None,
                     "startup_ms": startup.report(),
                 }
+                if args.addon_check:
+                    report["addons"] = check_addons(directory)
+                    report["success"] = all(result.get("ok") for result in report["addons"].values()) and bool(report["addons"])
                 (directory / "startup-check.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
                 picture.save(str(directory / "startup-panel.png"))
                 cyclop.mascot.grab().save(str(directory / "startup-mascot.png"))

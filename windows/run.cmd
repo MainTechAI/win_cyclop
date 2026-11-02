@@ -9,7 +9,7 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
   )
 )
-.venv\Scripts\python.exe -m pip install -e .
+.venv\Scripts\python.exe -m pip install -e .[camera]
 if errorlevel 1 (
   echo Dependency installation failed. Check the error above.
   pause

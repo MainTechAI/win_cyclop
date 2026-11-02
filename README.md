@@ -16,16 +16,18 @@ A small black notch at the top of your screen that unfolds into a toolbox, with 
 
 Windows may show **"Windows protected your PC"** because the build is unsigned. Choose **More info → Run anyway**. Cyclop then appears as a small notch at the top of the screen, with its eye beside it and an icon in the tray.
 
-Prefer faster start-up? Download **CyclopWindows-win-x64.zip** from the same release, extract it, and run `CyclopWindows\CyclopWindows.exe` (keep the `_internal` folder next to it). To update, quit Cyclop from its tray menu and run the new download; your notes, snippets and settings are kept.
+Speech recognition and webcam gaze are optional add-ons: each downloads once (from the same release, checked against its SHA-256) the first time you turn it on, so the exe stays small and starts quickly.
+
+Prefer the fastest start-up? Download **CyclopWindows-win-x64.zip** from the same release, extract it, and run `CyclopWindows\CyclopWindows.exe` (keep the `_internal` folder next to it). To update, quit Cyclop from its tray menu and run the new download; your notes, snippets and settings are kept.
 
 ## What it does
 
 - **Cyclop, the eye**: follows the mouse pointer, watches the text cursor as you type and glances at windows you switch to. When you pause it patrols the screen with red sonar, hunts spots, peers, nods, rolls its eye, and yawns and dozes when left alone. It gulps what you copy, bobs to music, trembles when the CPU is maxed, and peeks out now and then when tucked away. Click it to open or close the panel.
 - **System stats** under the eye: CPU, RAM, GPU and temperature as coloured numbers.
-- **Look where I look** (opt-in): with your webcam, Cyclop looks at you and learns where on the screen you are looking, calibrating itself from your mouse movements. Video never leaves your PC.
+- **Look where I look** (opt-in add-on): with your webcam, Cyclop looks at you and learns where on the screen you are looking, calibrating itself from your mouse movements. Video never leaves your PC.
 - **Image → text** (Ctrl+Shift+X): drag around anything on screen; offline Windows OCR copies the text, with a red sonar scan while it reads.
 - **Define / translate the selection** (Ctrl+Alt+D / Ctrl+Alt+T) in a popup.
-- **Voice commands and recording** with offline Whisper transcription (English and Russian).
+- **Voice commands and recording** with offline Whisper transcription (English and Russian; speech recognition is an add-on that downloads when you first turn on voice commands or transcribe).
 - **Quick settings** with Keep awake and volume, plus app and output volume sliders for whatever is playing.
 - Media controls with artwork, a file shelf with drag-and-drop, opt-in clipboard history, snippets, calendar (`.ics`), notes, teleprompter and currency conversion.
 - Arrange the tabs as you like (drag to reorder, move between the left and right rails, hide the ones you don't use); they cycle in a loop with Ctrl+Tab or the mouse wheel. **Ctrl+Alt+Space** opens the panel, and every feature and shortcut can be switched off or changed in Settings, which also shows the installed version.
