@@ -181,3 +181,76 @@ def test_repeated_transcribe_clicks_during_the_download_queue_one_transcription(
     finally:
         Transcriber.available = original
     assert len(requests) == 1
+
+
+def test_quitting_interrupts_a_stalled_download_at_once(fake_addon):
+    """A connection that stops sending mustn't hold up quitting until the network timeout."""
+    import http.server
+    import threading
+    make, _module, root = fake_addon
+    entry = make()
+    release = threading.Event()
+    served = []
+
+    class Stalling(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", str(entry["size"]))
+            self.end_headers()
+            self.wfile.write(b"PK")
+            self.wfile.flush()
+            served.append(True)
+            release.wait(20)          # then nothing more: a stalled transfer
+
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stalling)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    os_source = f"http://127.0.0.1:{server.server_address[1]}"
+    errors = []
+    original = addons._source
+    addons._source = lambda item: f"{os_source}/{item['file']}"
+    try:
+        worker = threading.Thread(target=lambda: errors.append(_capture(addons.install, "probe", None, root)))
+        worker.start()
+        deadline = time.monotonic() + 5
+        while not served and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert served, "the download never started"
+        time.sleep(0.3)
+        started = time.monotonic()
+        addons.cancel_downloads()
+        worker.join(5)
+        assert not worker.is_alive() and time.monotonic() - started < 2
+    finally:
+        addons._source = original
+        release.set()
+        server.shutdown()
+    assert errors == [addons.CANCELLED]
+    assert not addons.installed("probe", root)
+
+
+def _capture(function, *args):
+    try:
+        function(*args)
+    except RuntimeError as exc:
+        return str(exc)
+    return None
+
+
+def test_a_failed_download_closes_its_connection(fake_addon):
+    """When the installer gives up (here: more data than the manifest allows), the reader thread
+    stops too instead of waiting forever with the connection open."""
+    import threading
+    make, _module, root = fake_addon
+    entry = make()
+    big = root.parent / "release" / "CyclopProbe.zip"
+    big.write_bytes(b"x" * (entry["size"] + (1 << 23)))   # far beyond the queue's capacity
+    before = {thread.name for thread in threading.enumerate()}
+    with pytest.raises(RuntimeError, match="larger than expected"):
+        addons.install("probe", None, root)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and any(thread.name == "addon-probe" and thread.name not in before
+                                               for thread in threading.enumerate()):
+        time.sleep(0.05)
+    assert not any(thread.name == "addon-probe" for thread in threading.enumerate())

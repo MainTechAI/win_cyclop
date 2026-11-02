@@ -3,6 +3,8 @@
 [![Windows build](https://github.com/MainTechAI/win_cyclop/actions/workflows/windows.yml/badge.svg)](https://github.com/MainTechAI/win_cyclop/actions/workflows/windows.yml)
 [![Latest release](https://img.shields.io/github/v/release/MainTechAI/win_cyclop?label=download)](https://github.com/MainTechAI/win_cyclop/releases/latest)
 
+**Latest: [0.4.2](https://github.com/MainTechAI/win_cyclop/releases/tag/windows-v0.4.2)**: quitting during an add-on download is immediate. ([Release notes](windows/releases/0.4.2.md) · [all releases](https://github.com/MainTechAI/win_cyclop/releases))
+
 A small black notch at the top of your screen that unfolds into a toolbox, with **Cyclop**: a living 3D eye that follows your pointer, scans with red sonar and shows your system stats. Built for Windows 11 with Python and Qt; no browser or Electron.
 
 ![Cyclop panel and eye](windows/docs/panel-preview.png)
