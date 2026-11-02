@@ -56,7 +56,20 @@ def timed_import(name, label):
 parser = argparse.ArgumentParser()
 parser.add_argument("--seconds", type=float, default=4.0)
 parser.add_argument("--json")
+parser.add_argument("--log", help="write all output and any error here")
 args = parser.parse_args()
+if args.log:
+    import faulthandler
+    import traceback
+    log = open(args.log, "w", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stderr = log
+    faulthandler.enable(log)
+
+    def failed(kind, value, trace):
+        traceback.print_exception(kind, value, trace, file=log)
+        log.flush()
+        os._exit(1)
+    sys.excepthook = failed
 
 timed_import("PySide6.QtWidgets", "import Qt (PySide6)")
 timed_import("numpy", "import numpy")

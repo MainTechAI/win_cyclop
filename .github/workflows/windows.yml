@@ -90,15 +90,16 @@ jobs:
           QT_QPA_PLATFORM: windows
         run: |
           $env:CYCLOP_DATA_DIR = Join-Path $env:RUNNER_TEMP 'cyclop-profile'
+          $ErrorActionPreference = 'Continue'
           foreach ($run in 1, 2) {
-            python scripts/profile-startup.py --seconds 4 --json startup-profile.json *> profile.log
-            $code = $LASTEXITCODE
-            if ($code -ne 0) {
+            Remove-Item startup-profile.json -ErrorAction SilentlyContinue
+            python scripts/profile-startup.py --seconds 4 --json startup-profile.json --log profile.log
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path startup-profile.json)) {
               Get-Content profile.log | Where-Object { $_ -match '\S' } | Select-Object -Last 8 | ForEach-Object {
                 $clean = ($_ -replace '[^\x20-\x7E]', '?'); if ($clean.Length -gt 300) { $clean = $clean.Substring(0, 300) }
                 Write-Output ("::warning title=profile detail::" + $clean.Replace('%', '%25'))
               }
-              exit $code
+              exit 1
             }
           }
           $prof = Get-Content startup-profile.json -Raw | ConvertFrom-Json
