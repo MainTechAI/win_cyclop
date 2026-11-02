@@ -28,6 +28,8 @@ SCRATCH = None
 if not os.environ.get("CYCLOP_DATA_DIR"):
     SCRATCH = tempfile.mkdtemp(prefix="cyclop-profile-")
     os.environ["CYCLOP_DATA_DIR"] = SCRATCH
+    import atexit
+    atexit.register(shutil.rmtree, SCRATCH, True)   # --help, bad arguments, an error without --log
 T0 = time.perf_counter()
 costs: dict[str, float] = defaultdict(float)
 threads: dict[str, str] = {}

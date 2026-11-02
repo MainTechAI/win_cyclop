@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import sys
 import tempfile
 import threading
@@ -81,9 +82,28 @@ CANCELLED = "The download was cancelled"
 _cancel = threading.Event()
 
 
+_connections: set = set()   # sockets of downloads in progress
+
+
 def cancel_downloads():
-    """Stop downloads in progress (when Cyclop quits) instead of waiting for them to finish."""
+    """Stop downloads in progress (when Cyclop quits) instead of waiting for them to finish.
+    Shutting the socket down ends a read that is blocked on a stalled connection at once."""
     _cancel.set()
+    with _lock:
+        sockets = list(_connections)
+    for connection in sockets:
+        try:
+            # The plain socket's shutdown (not SSLSocket's, which also drops its TLS state under the reader).
+            socket.socket.shutdown(connection, socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+
+def _socket_of(response):
+    try:
+        return response.fp.raw._sock
+    except AttributeError:
+        return None
 
 
 def activate(name: str, root: Path | None = None) -> bool:
@@ -148,25 +168,43 @@ def install(name: str, progress=None, root: Path | None = None) -> Path:
         archive = Path(work) / entry["file"]
         digest = hashlib.sha256()
         received = 0
-        if source.startswith("https://"):
+        connection = None
+        if source.startswith(("https://", "http://")):
             request = Request(source, headers={"User-Agent": f"CyclopWindows/{__version__}"})
-            stream = urlopen(request, timeout=30)
+            stream = urlopen(request, timeout=10)    # connecting: quitting waits at most this long
+            connection = _socket_of(stream)
+            if connection is not None:
+                connection.settimeout(30)            # a slow network may pause longer between blocks
+                with _lock:
+                    _connections.add(connection)
         else:
             stream = open(source, "rb")
-        with stream, archive.open("wb") as output:
-            while True:
-                if _cancel.is_set():
-                    raise RuntimeError(CANCELLED)
-                block = stream.read(1 << 18)
-                if not block:
-                    break
-                received += len(block)
-                if received > size:
-                    raise RuntimeError("The download is larger than expected")
-                digest.update(block)
-                output.write(block)
-                if progress:
-                    progress(received / size)
+        try:
+            with stream, archive.open("wb") as output:
+                while True:
+                    if _cancel.is_set():
+                        raise RuntimeError(CANCELLED)
+                    try:
+                        block = stream.read(1 << 18)
+                    except Exception as exc:
+                        if _cancel.is_set():
+                            raise RuntimeError(CANCELLED) from exc
+                        raise
+                    if not block:
+                        if _cancel.is_set():
+                            raise RuntimeError(CANCELLED)   # the socket was shut down mid-transfer
+                        break
+                    received += len(block)
+                    if received > size:
+                        raise RuntimeError("The download is larger than expected")
+                    digest.update(block)
+                    output.write(block)
+                    if progress:
+                        progress(received / size)
+        finally:
+            if connection is not None:
+                with _lock:
+                    _connections.discard(connection)
         if received != size or digest.hexdigest() != expected:
             raise RuntimeError("The download didn't match this version's checksum, so it wasn't installed")
         unpacked = Path(work) / "unpacked"

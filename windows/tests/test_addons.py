@@ -181,3 +181,55 @@ def test_repeated_transcribe_clicks_during_the_download_queue_one_transcription(
     finally:
         Transcriber.available = original
     assert len(requests) == 1
+
+
+def test_quitting_interrupts_a_stalled_download_at_once(fake_addon):
+    """A connection that stops sending mustn't hold up quitting until the network timeout."""
+    import http.server
+    import threading
+    make, _module, root = fake_addon
+    entry = make()
+    release = threading.Event()
+
+    class Stalling(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", str(entry["size"]))
+            self.end_headers()
+            self.wfile.write(b"PK")
+            self.wfile.flush()
+            release.wait(20)          # then nothing more: a stalled transfer
+
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stalling)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    os_source = f"http://127.0.0.1:{server.server_address[1]}"
+    errors = []
+    original = addons._source
+    addons._source = lambda item: f"{os_source}/{item['file']}"
+    try:
+        worker = threading.Thread(target=lambda: errors.append(_capture(addons.install, "probe", None, root)))
+        worker.start()
+        deadline = time.monotonic() + 5
+        while not addons._connections and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert addons._connections, "the download never started"
+        started = time.monotonic()
+        addons.cancel_downloads()
+        worker.join(5)
+        assert not worker.is_alive() and time.monotonic() - started < 2
+    finally:
+        addons._source = original
+        release.set()
+        server.shutdown()
+    assert errors == [addons.CANCELLED]
+    assert not addons.installed("probe", root) and not addons._connections
+
+
+def _capture(function, *args):
+    try:
+        function(*args)
+    except RuntimeError as exc:
+        return str(exc)
+    return None
