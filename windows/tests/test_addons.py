@@ -18,12 +18,12 @@ def fake_addon(tmp_path, monkeypatch):
     source.mkdir()
     module = f"cyclop_addon_probe_{time.monotonic_ns()}"
 
-    def make(entries=None, tamper=False):
+    def make(entries=None, tamper=False, python=None):
         archive = source / "CyclopProbe.zip"
         with zipfile.ZipFile(archive, "w") as bundle:
             for name, text in (entries or {f"{module}/__init__.py": "VALUE = 42\n"}).items():
                 bundle.writestr(name, text)
-            bundle.writestr("cyclop-addon.json", json.dumps({"name": "probe"}))
+            bundle.writestr("cyclop-addon.json", json.dumps({"name": "probe", "python": python or f"{sys.version_info.major}.{sys.version_info.minor}"}))
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         entry = {"file": archive.name, "size": archive.stat().st_size, "sha256": ("0" * 64) if tamper else digest}
         monkeypatch.setattr(addons, "manifest", lambda: {"probe": entry})
@@ -32,9 +32,11 @@ def fake_addon(tmp_path, monkeypatch):
     monkeypatch.setenv("CYCLOP_ADDON_SOURCE", str(source))
     monkeypatch.setitem(addons.ADDONS, "probe", addons.Addon("probe", "Probe", (module,), ("probe",)))
     paths = list(sys.path)
+    addons._cancel.clear()
     yield make, module, tmp_path / "data"
     sys.path[:] = paths
     addons._activated.discard("probe")
+    addons._cancel.clear()
 
 
 def test_addon_installs_verified_and_becomes_importable(fake_addon):
@@ -115,3 +117,67 @@ def test_settings_explain_downloads_when_add_ons_are_not_installed(app, tmp_path
     assert "downloads once (45 MB)" in pane.addon_status["camera"].text()
     pane.show_addon("speech", "Speech recognition: downloading… 50%")
     assert pane.addon_status["speech"].text().endswith("50%")
+
+
+def test_add_on_built_for_another_python_is_left_alone(fake_addon):
+    """A source checkout on another Python shares the data folder with the exe: it must not load
+    the exe's native modules (it uses its own pip extras instead)."""
+    make, _module, root = fake_addon
+    make(python="2.7")
+    addons.install("probe", None, root)
+    assert addons.installed("probe", root)
+    assert not addons.compatible("probe", root)
+    assert not addons.activate("probe", root) and not addons.ready("probe", root)
+    assert str(addons.folder("probe", root)) not in sys.path
+
+
+def test_quitting_cancels_a_download_without_reporting_it(app, fake_addon):
+    make, _module, root = fake_addon
+    make()
+    model = Model(root)
+    installer = addons.Installer(model)
+    reported, otherwise = [], []
+    installer.failed.connect(lambda name, error: reported.append(error))
+    addons._cancel.set()
+    # ensure() starts a new download (clearing any earlier cancel); quitting then cancels it.
+    original = addons.install
+
+    def install_after_quit(*args, **kwargs):
+        addons.cancel_downloads()
+        return original(*args, **kwargs)
+    addons.install = install_after_quit
+    try:
+        installer.ensure("probe", otherwise=otherwise.append)
+        model.pool.waitForDone()
+        deadline = time.monotonic() + 5
+        while installer.busy and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+    finally:
+        addons.install = original
+    assert not addons.installed("probe", root)
+    assert not reported and not otherwise and not installer.busy
+
+
+def test_repeated_transcribe_clicks_during_the_download_queue_one_transcription(app, tmp_path):
+    from cyclop_windows.features import RecorderPane
+    from cyclop_windows.speech import Recorder, Transcriber
+    model = Model(tmp_path)
+    pane = RecorderPane(model, Recorder())
+    requests = []
+
+    class Installer:
+        def ensure(self, name, then=None, otherwise=None):
+            if (then, otherwise) not in requests:
+                requests.append((then, otherwise))
+            return False
+    pane.installer = Installer()
+    pane.selected = lambda: tmp_path / "Recording.wav"
+    original = Transcriber.available
+    Transcriber.available = classmethod(lambda cls: False)
+    try:
+        for _ in range(3):
+            pane.transcribe()
+    finally:
+        Transcriber.available = original
+    assert len(requests) == 1

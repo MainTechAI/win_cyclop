@@ -1019,6 +1019,7 @@ class Cyclop(QObject):
             QTimer.singleShot(1500, self.start_background)
 
     def shutdown(self):
+        addons.cancel_downloads()   # the job pool is waited for below; don't let a download hold up quitting
         self.hotkeys.close()
         if self.awake:
             keep_awake(False)
@@ -1082,11 +1083,15 @@ def check_addons(directory):
                 result.update(decoded=decoded, ctranslate2=ctranslate2.__version__, onnxruntime=onnxruntime.__version__,
                               compute=sorted(ctranslate2.get_supported_compute_types("cpu")))
                 if os.environ.get("CYCLOP_ADDON_TRANSCRIBE"):
-                    # Downloads Whisper tiny from Hugging Face: exercises HTTPS and the real model.
+                    # Whisper tiny from Hugging Face exercises HTTPS and the real model. Hugging Face being
+                    # unreachable mustn't block a release; a model that downloads but fails to run must.
+                    from faster_whisper.utils import download_model
                     try:
-                        result["transcribed"] = repr(Transcriber.transcribe(tone, directory / "models", "tiny", "en"))
+                        download_model("tiny", cache_dir=str(directory / "models"))
                     except Exception as exc:
-                        result["transcribe_error"] = str(exc)[:200]
+                        result["model_download_error"] = str(exc)[:200]
+                    else:
+                        result["transcribed"] = repr(Transcriber.transcribe(tone, directory / "models", "tiny", "en"))
             elif name == "camera":
                 import numpy as np
                 import cv2

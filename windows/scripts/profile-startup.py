@@ -15,11 +15,19 @@ import functools
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
+import tempfile
 import threading
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# Never the real data folder: the running app could have newer notes that a profile run would
+# overwrite when it saves on exit (the profiler doesn't take Cyclop's single-instance lock).
+SCRATCH = None
+if not os.environ.get("CYCLOP_DATA_DIR"):
+    SCRATCH = tempfile.mkdtemp(prefix="cyclop-profile-")
+    os.environ["CYCLOP_DATA_DIR"] = SCRATCH
 T0 = time.perf_counter()
 costs: dict[str, float] = defaultdict(float)
 threads: dict[str, str] = {}
@@ -68,6 +76,8 @@ if args.log:
     def failed(kind, value, trace):
         traceback.print_exception(kind, value, trace, file=log)
         log.flush()
+        if SCRATCH:
+            shutil.rmtree(SCRATCH, ignore_errors=True)
         os._exit(1)
     sys.excepthook = failed
 
@@ -172,4 +182,6 @@ for name, value, where in report["ranked_ms"]:
 print("first seconds:", report["first_seconds"])
 if args.json:
     Path(args.json).write_text(json.dumps(report, indent=2), encoding="utf-8")
+if SCRATCH:
+    shutil.rmtree(SCRATCH, ignore_errors=True)
 os._exit(0)
