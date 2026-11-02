@@ -42,6 +42,7 @@ from .speech import Recorder
 from .system import Volume
 from .theme import STYLE, icon
 from .windows import HotkeyFilter
+from . import startup
 
 TABS = {
     "music": "Music", "shelf": "Shelf", "clipboard": "Clipboard", "snippets": "Snippets",
@@ -976,6 +977,7 @@ def main():
     parser.add_argument("--expanded", action="store_true", help="Open the panel at launch")
     parser.add_argument("--smoke-test", action="store_true", help="Render the packaged UI, write a startup report and exit")
     args = parser.parse_args()
+    startup.mark("imports")
     app = QApplication(sys.argv[:1])
     app.setApplicationName("CyclopWindows")
     app.setOrganizationName("MainTechAI")
@@ -991,7 +993,9 @@ def main():
         QMessageBox.information(None, "Cyclop", "Cyclop is already running. Use the tray icon or its shortcut.")
         return
     model = Model(directory)
+    startup.mark("app_ready")
     cyclop = Cyclop(model)
+    startup.mark("features_built")
     panel = cyclop.panel
 
     def shutdown():
@@ -999,6 +1003,7 @@ def main():
         lock.unlock()
     app.aboutToQuit.connect(shutdown)
     cyclop.show()
+    startup.mark("shown")
     if args.expanded or args.smoke_test:
         panel.set_expanded(True, focus=True)
     if sys.platform == "win32" and cyclop.hotkey_errors:
@@ -1027,6 +1032,7 @@ def main():
                     "volume_available": cyclop.volume.available,
                     "stats": {key: value for key, value in sample_once().items() if key != "details"},
                     "face_model_bundled": find_model() is not None,
+                    "startup_ms": startup.report(),
                 }
                 (directory / "startup-check.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
                 picture.save(str(directory / "startup-panel.png"))
